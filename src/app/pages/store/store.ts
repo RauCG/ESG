@@ -173,6 +173,9 @@ export class StorePage {
   async search() {
     const query = this.q().trim();
     if (!query || this.loading()) return;
+    // Limpieza inmediata: ni rastro de resultados viejos mientras se busca.
+    this.results.set([]);
+    this.searched.set(false);
     this.loading.set(true);
     this.visible.set(20);
     // Pinta el panel al instante, antes de que empiece el trabajo asíncrono.
@@ -180,13 +183,14 @@ export class StorePage {
     const t0 = Date.now();
     try {
       const res = await this.packages.search(query);
+      // Espera el tiempo mínimo ANTES de mostrar nada: todo sale a la vez.
+      const wait = Math.max(0, 2500 - (Date.now() - t0));
+      await new Promise((r) => setTimeout(r, wait));
       this.results.set(res);
       this.lastQ.set(query);
       this.searched.set(true);
     } finally {
-      // Tiempo mínimo visible para que la animación se aprecie (búsquedas ~1 s).
-      const wait = Math.max(0, 2500 - (Date.now() - t0));
-      setTimeout(() => this.loading.set(false), wait);
+      this.loading.set(false);
     }
   }
 
