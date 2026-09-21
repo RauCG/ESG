@@ -1,0 +1,24 @@
+@import '@xterm/xterm/css/xterm.css';
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #0f1117;
+  --color-surface: #161a24;
+  --color-surface2: #1d2330;
+  --color-border: #2a3244;
+  --color-accent: #6366f1;
+  --color-accent2: #22d3ee;
+  --color-muted: #8b93a7;
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-err: #f87171;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: #e5e7eb;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
