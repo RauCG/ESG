@@ -62,6 +62,12 @@ npm run install:program
 # o bien: bash programBuild/install.sh
 ```
 
+El instalador, además de copiar los ficheros (sin root), **prepara las
+dependencias del sistema por distro** (WebKitGTK/GTK/soup vía `pacman`, `apt`,
+`dnf` o `zypper` con sudo; solo lo que falte) y hace un **pre-flight de glibc**
+(>= 2.39; si no, aborta con mensaje claro en vez del críptico `GLIBC_2.39 not
+found`). Requiere red para descargar paquetes del sistema.
+
 Instala en `~/.local/bin/esg`, el icono en `~/.local/share/icons/esg.png` y el lanzador
 en `~/.local/share/applications/esg.desktop`. Después aparece como **ESG** en el
 lanzador de aplicaciones (desde ahí se fija al escritorio o al panel).
