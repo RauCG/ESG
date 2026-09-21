@@ -141,14 +141,37 @@ import { MANAGER_TAB_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_LABEL, SECTION_O
             }
           </select>
         }
-        <select
-          (change)="sortBy.set($any($event.target).value)"
-          class="w-44 cursor-pointer appearance-none rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
-        >
-          <option value="nombre" [selected]="sortBy() === 'nombre'">Nombre (A–Z)</option>
-          <option value="tamano" [selected]="sortBy() === 'tamano'">Tamaño ↓</option>
-          <option value="fecha" [selected]="sortBy() === 'fecha'">Instalación ↓</option>
-        </select>
+        @for (cfg of sortDropdowns(); track cfg.key) {
+          <div class="relative w-40">
+            @if (sortOpen() === cfg.key) {
+              <div class="fixed inset-0 z-10" (click)="sortOpen.set('')"></div>
+            }
+            <button
+              (click)="sortOpen.set(sortOpen() === cfg.key ? '' : cfg.key)"
+              type="button"
+              class="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
+            >
+              <span class="truncate">{{ cfg.label }}</span>
+              <svg class="h-4 w-4 shrink-0 text-muted transition" [class.rotate-180]="sortOpen() === cfg.key" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+            @if (sortOpen() === cfg.key) {
+              <div class="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-border bg-surface2 shadow-2xl">
+                @for (opt of cfg.opts; track opt.v) {
+                  <button
+                    (click)="setSort(opt.v)"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
+                  >
+                    <span>{{ opt.label }}</span>
+                    @if (sortBy() === opt.v) {
+                      <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
+                    }
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
         <div class="w-64">
           <input
             type="search"
@@ -222,7 +245,8 @@ export class ProgramsPage {
 
   tab = signal<string>('all');
   sec = signal<Section | 'todas'>('todas');
-  sortBy = signal<'nombre' | 'tamano' | 'fecha'>('nombre');
+  sortBy = signal<'nombre-asc' | 'nombre-desc' | 'tamano-asc' | 'tamano-desc' | 'fecha-asc' | 'fecha-desc'>('nombre-asc');
+  sortOpen = signal<'' | 'nombre' | 'tamano' | 'fecha'>('');
   originFilter = signal<Origin | 'todas'>('todas');
   originOpen = signal(false);
   query = signal('');
@@ -246,6 +270,42 @@ export class ProgramsPage {
   setOrigin(o: Origin | 'todas') {
     this.originFilter.set(o);
     this.originOpen.set(false);
+  }
+
+  setSort(v: 'nombre-asc' | 'nombre-desc' | 'tamano-asc' | 'tamano-desc' | 'fecha-asc' | 'fecha-desc') {
+    this.sortBy.set(v);
+    this.sortOpen.set('');
+  }
+
+  sortDropdowns() {
+    const s = this.sortBy();
+    const active = (v: string) => s === v;
+    return [
+      {
+        key: 'nombre' as const,
+        label: active('nombre-asc') ? 'Nombre: A–Z' : active('nombre-desc') ? 'Nombre: Z–A' : 'Nombre',
+        opts: [
+          { v: 'nombre-asc' as const, label: 'A–Z' },
+          { v: 'nombre-desc' as const, label: 'Z–A' },
+        ],
+      },
+      {
+        key: 'tamano' as const,
+        label: active('tamano-asc') ? 'Tamaño: menor' : active('tamano-desc') ? 'Tamaño: mayor' : 'Tamaño',
+        opts: [
+          { v: 'tamano-asc' as const, label: 'Menor' },
+          { v: 'tamano-desc' as const, label: 'Mayor' },
+        ],
+      },
+      {
+        key: 'fecha' as const,
+        label: active('fecha-asc') ? 'Instalación: menor' : active('fecha-desc') ? 'Instalación: mayor' : 'Instalación',
+        opts: [
+          { v: 'fecha-asc' as const, label: 'Menor' },
+          { v: 'fecha-desc' as const, label: 'Mayor' },
+        ],
+      },
+    ];
   }
 
   originLabel() {
@@ -300,12 +360,28 @@ export class ProgramsPage {
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     });
     const arr = [...list];
-    if (sort === 'tamano') {
-      arr.sort((a, b) => (b.size || 0) - (a.size || 0) || a.name.localeCompare(b.name));
-    } else if (sort === 'fecha') {
-      arr.sort((a, b) => (b.installDate || 0) - (a.installDate || 0) || a.name.localeCompare(b.name));
-    } else {
-      arr.sort((a, b) => a.name.localeCompare(b.name));
+    // Sin dato (0) siempre al final, en ambas direcciones.
+    const numOr = (v: number | null | undefined, dir: 1 | -1) =>
+      v ? v : dir === 1 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    switch (sort) {
+      case 'nombre-desc':
+        arr.sort((a, b) => b.name.localeCompare(a.name));
+        break;
+      case 'tamano-asc':
+        arr.sort((a, b) => numOr(a.size, 1) - numOr(b.size, 1) || a.name.localeCompare(b.name));
+        break;
+      case 'tamano-desc':
+        arr.sort((a, b) => numOr(b.size, -1) - numOr(a.size, -1) || a.name.localeCompare(b.name));
+        break;
+      case 'fecha-asc':
+        arr.sort((a, b) => numOr(a.installDate, 1) - numOr(b.installDate, 1) || a.name.localeCompare(b.name));
+        break;
+      case 'fecha-desc':
+        arr.sort((a, b) => numOr(b.installDate, -1) - numOr(a.installDate, -1) || a.name.localeCompare(b.name));
+        break;
+      default:
+        arr.sort((a, b) => a.name.localeCompare(b.name));
+        break;
     }
     return arr;
   });
