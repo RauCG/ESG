@@ -20,9 +20,12 @@ import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_ICO
           {{ packages.availableUpdates().length }} con actualización disponible</p>
       </div>
       <div class="flex items-center gap-2">
-        <label class="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-muted">
+        <label
+          title="Al desactivarlo dejarás de ver los programas de los que depende tu SO para funcionar"
+          class="flex cursor-help items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-muted"
+        >
           <input type="checkbox" [checked]="showDeps()" (change)="toggleDeps($any($event.target).checked)" class="h-3.5 w-3.5 accent-accent" />
-          dependencias
+          Dependencias SO
         </label>
         <button
           (click)="refresh()"
