@@ -174,13 +174,16 @@ export class StorePage {
     if (!query || this.loading()) return;
     this.loading.set(true);
     this.visible.set(20);
+    const t0 = Date.now();
     try {
       const res = await this.packages.search(query);
       this.results.set(res);
       this.lastQ.set(query);
       this.searched.set(true);
     } finally {
-      this.loading.set(false);
+      // Tiempo mínimo visible para que la animación se aprecie (búsquedas ~1 s).
+      const wait = Math.max(0, 1500 - (Date.now() - t0));
+      setTimeout(() => this.loading.set(false), wait);
     }
   }
 
