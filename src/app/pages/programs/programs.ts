@@ -21,10 +21,10 @@ import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_ICO
       </div>
       <div class="flex items-center gap-2">
         <label
-          title="Al desactivarlo dejarás de ver los programas de los que depende tu SO para funcionar"
+          title="Al activarlo se quitarán todas las dependencias del SO"
           class="flex cursor-help items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-muted"
         >
-          <input type="checkbox" [checked]="showDeps()" (change)="toggleDeps($any($event.target).checked)" class="h-3.5 w-3.5 accent-accent" />
+          <input type="checkbox" [checked]="hideDeps()" (change)="toggleDeps($any($event.target).checked)" class="h-3.5 w-3.5 accent-accent" />
           Dependencias SO
         </label>
         <button
@@ -254,7 +254,8 @@ export class ProgramsPage {
   originFilter = signal<Origin | 'todas'>('todas');
   originOpen = signal(false);
   query = signal('');
-  showDeps = signal(true);
+  // Marcado = ocultar dependencias (por defecto desmarcado: se ve todo).
+  hideDeps = signal(false);
   updating = signal(false);
   toUninstall = signal<Pkg | null>(null);
 
@@ -322,12 +323,12 @@ export class ProgramsPage {
   });
 
   async refresh() {
-    await this.packages.toggleDeps(this.showDeps());
+    await this.packages.toggleDeps(!this.hideDeps());
   }
 
   async toggleDeps(v: boolean) {
-    this.showDeps.set(v);
-    await this.packages.toggleDeps(v);
+    this.hideDeps.set(v);
+    await this.packages.toggleDeps(!v);
   }
 
   async launch(pkg: Pkg) {
