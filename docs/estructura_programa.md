@@ -320,6 +320,10 @@ cd src-tauri && cargo check        # Chequeo rápido del backend
 - `npm run install:program` (o `bash programBuild/install.sh`): instala por usuario sin
   root en `~/.local/bin`, `~/.local/share/icons`, `~/.local/share/applications`
   (resolviendo las rutas reales; `BIN_DIR` overrideable). Detallado en el README.
+- Distribución multi-distro: `bundle.active=true`, `targets=["deb"]` con `depends`
+  de WebKitGTK/GTK/soup (config `rpm` lista para cuando haya `rpmbuild`); verificado
+  en Docker (Debian 12 resuelve deps pero falla por glibc 2.36 < 2.39; Debian 13 OK
+  total). Matriz de soporte en el README.
 
 ## 9. Pendientes / próximos pasos
 

@@ -3,7 +3,7 @@
 // en cualquier equipo Linux: binario, icono, .desktop e instalador.
 // Uso: node scripts/pack-program.mjs  (o `npm run pack:program`)
 // Requiere haber compilado antes (`npm run build:program` ya lo hace).
-import { cpSync, mkdirSync, writeFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, writeFileSync, existsSync, chmodSync, rmSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -63,3 +63,17 @@ echo "ESG instalado en $BIN_DIR/esg. Buscalo como 'ESG' en tu lanzador de aplica
 chmodSync(join(out, 'install.sh'), 0o755);
 
 console.log('programBuild/ listo: esg, esg.png, esg.desktop, install.sh');
+
+// Paquetes nativos (.deb/.rpm) si `tauri build` los generó: llevan las
+// dependencias del sistema (webkit2gtk, gtk, soup) declaradas.
+const bundleDir = join(root, 'src-tauri', 'target', 'release', 'bundle');
+if (existsSync(bundleDir)) {
+  for (const f of readdirSync(bundleDir, { recursive: true })) {
+    if (typeof f === 'string' && (f.endsWith('.deb') || f.endsWith('.rpm'))) {
+      const src = join(bundleDir, f);
+      const dst = join(out, f.split('/').pop());
+      if (src !== dst) cpSync(src, dst);
+      console.log(' + ' + dst.split('/').pop());
+    }
+  }
+}

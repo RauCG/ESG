@@ -27,14 +27,26 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
+    "active": true,
+    "targets": ["deb"],
+    "publisher": "RauCG",
+    "category": "Utility",
+    "shortDescription": "Gestor grafico de programas para Linux",
+    "longDescription": "ESG detecta tu sistema y gestores de paquetes, lista los programas instalados por categorias y permite actualizarlos, instalarlos, desinstalarlos y limpiarlos, con terminal integrada.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libsoup-3.0-0"]
+      },
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "gtk3", "libsoup3"]
+      }
+    }
   }
 }

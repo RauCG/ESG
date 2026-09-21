@@ -74,3 +74,26 @@ BIN_DIR=/opt/esg bash programBuild/install.sh   # Instalar el binario en otra ru
 ```
 
 `programBuild/` está en `.gitignore`: se genera, no se versiona.
+
+## Instalar en otras distros (.deb / .rpm)
+
+El binario necesita el webview del sistema (WebKitGTK). Los paquetes nativos lo
+declaran como dependencia y el gestor lo instala solo. Verificado con Docker.
+
+```bash
+# Debian 13 / Ubuntu 24.04+ (y derivadas con glibc >= 2.39)
+sudo apt install ./programBuild/ESG_0.1.0_amd64.deb
+```
+
+Matriz de soporte (binario compilado en Arch, glibc 2.44):
+
+| Distro | Estado | Notas |
+| ------ | ------ | ----- |
+| Debian 13, Ubuntu 24.04+ | ✅ | `apt install` resuelve webkit/gtk/soup solo |
+| Debian 12 y anteriores, Ubuntu 22.04 | ❌ | glibc del sistema (2.36) < 2.39 requerida |
+| Fedora/RHEL recientes (glibc >= 2.39) | ✅* | Con `.rpm` (ver abajo) |
+| Arch / derivadas rolling | ✅ | `bash programBuild/install.sh` (webkit ya está si usas el escritorio) |
+
+Para generar el `.rpm` (Fedora/RHEL/openSUSE): instala `rpm-tools`, añade `"rpm"`
+a `bundle.targets` en `src-tauri/tauri.conf.json` y recompila (`npm run build:program`).
+El `.deb` se genera siempre y `pack-program` lo copia a `programBuild/`.
