@@ -142,10 +142,12 @@ ProgramaLocalRaux/
 │       └── util.rs              # Helpers (desktop_dirs, command_exists, du)
 │
 ├── docs/                        # Documentación del proyecto
-│   ├── estructura_programa.md   # Este documento (arquitectura)
-│   ├── continuar_trabajo.md     # Contexto de sesión para retomar el trabajo
-│   └── revision_actualizaciones_yay.md  # Revisión antigua de yay (parcialmente desactualizada)
-└── package.json                 # Scripts: build, tauri dev, etc.
+│   └── estructura_programa.md   # Este documento (arquitectura + build)
+├── scripts/
+│   └── pack-program.mjs         # Genera programBuild/ (binario, icono, .desktop, install.sh)
+├── public/
+│   └── codigo.png               # Icono fuente de la app (512x512)
+└── package.json                 # Scripts: build, tauri dev, build:program, install:program, etc.
 ```
 
 ---
@@ -287,7 +289,21 @@ cd src-tauri && cargo check        # Chequeo rápido del backend
 
 ---
 
-## 8. Pendientes / próximos pasos
+## 8. Compilar e instalar (programBuild)
+
+- Icono: fuente en `public/codigo.png` (512x512); set Tauri en `src-tauri/icons/`
+  (generado con `./node_modules/.bin/tauri icon public/codigo.png` y referenciado en
+  `tauri.conf.json > bundle.icon`). El binario se auto-ajusta al entorno gráfico al
+  arrancar (`main.rs: tune_graphics_env`: Wayland → desactiva DMABUF de WebKit y usa
+  X11 si hay `DISPLAY`; respeta vars explícitas).
+- `npm run build:program` = `tauri build` + `node scripts/pack-program.mjs`: crea
+  **`programBuild/`** (ignorada por git) con `esg` (binario), `esg.png` (icono),
+  `esg.desktop` (plantilla con `@@BIN@@`/`@@ICON@@`) e `install.sh`.
+- `npm run install:program` (o `bash programBuild/install.sh`): instala por usuario sin
+  root en `~/.local/bin`, `~/.local/share/icons`, `~/.local/share/applications`
+  (resolviendo las rutas reales; `BIN_DIR` overrideable). Detallado en el README.
+
+## 9. Pendientes / próximos pasos
 
 - Verificación visual en GUI del fix de managers de la Tienda (una sola entrada por
   programa, insignia `pacman` en nativos).

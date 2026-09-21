@@ -45,3 +45,6 @@ Thumbs.db
 
 # Rust / Tauri
 src-tauri/target/
+
+# Paquete local (se genera con `npm run build:program`)
+/programBuild

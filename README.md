@@ -1,59 +1,76 @@
-# ESG
+# ESG — Gestor de programas Linux
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.8.
+Aplicación de escritorio (Arch-first) para gestionar paquetes del sistema desde una
+interfaz gráfica: detecta el SO y los gestores disponibles, lista los programas instalados
+por categorías, permite actualizarlos/instalarlos/desinstalarlos/limpiarlos y ofrece una
+terminal integrada.
 
-## Development server
+Stack: **Tauri 2** (Rust) + **Angular 22** (TypeScript) + **Tailwind CSS v4**.
 
-To start a local development server, run:
+La arquitectura está documentada en [`docs/estructura_programa.md`](docs/estructura_programa.md).
 
-```bash
-ng serve
-```
+## Requisitos
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+- Node.js + npm
+- Rust (cargo) y las dependencias de Tauri para Linux
+  (`webkit2gtk`, `libayatana-appindicator`, etc. según tu distro)
+- El icono de la app vive en `public/codigo.png` (512x512); el set completo de iconos
+  de Tauri se genera en `src-tauri/icons/` con:
+  ```bash
+  ./node_modules/.bin/tauri icon public/codigo.png
+  ```
 
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
+## Desarrollo
 
 ```bash
-ng build
+npm install
+npm run tauri dev
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+En sesiones Wayland, si la ventana aborta con `Error 71 dispatching to Wayland display`,
+arranca con:
 
 ```bash
-ng test
+GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 ```
 
-## Running end-to-end tests
+(El binario release ya se auto-ajusta solo al arrancar; esto solo afecta al modo dev.)
 
-For end-to-end (e2e) testing, run:
+Tests del backend: `cd src-tauri && cargo test`.
+
+## Compilar e instalar (programBuild)
+
+Para compilar la app y dejarla lista para instalar en cualquier equipo Linux:
 
 ```bash
-ng e2e
+npm run build:program
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+Esto compila el binario release y crea la carpeta **`programBuild/`** en la raíz con:
 
-## Additional Resources
+| Fichero         | Contenido                                                        |
+| --------------- | ---------------------------------------------------------------- |
+| `esg`           | Binario release (se apaña solo en X11/Wayland, sin vars manuales)|
+| `esg.png`       | Icono de la app                                                  |
+| `esg.desktop`   | Lanzador (con `@@BIN@@` / `@@ICON@@` como rutas a resolver)       |
+| `install.sh`    | Instalador por usuario (sin root)                                |
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Para instalarla en tu equipo (o en cualquier otro copiando la carpeta):
+
+```bash
+npm run install:program
+# o bien: bash programBuild/install.sh
+```
+
+Instala en `~/.local/bin/esg`, el icono en `~/.local/share/icons/esg.png` y el lanzador
+en `~/.local/share/applications/esg.desktop`. Después aparece como **ESG** en el
+lanzador de aplicaciones (desde ahí se fija al escritorio o al panel).
+
+Comandos relacionados:
+
+```bash
+npm run pack:program      # Solo regenera programBuild/ (requiere binario ya compilado)
+BIN_DIR=/opt/esg bash programBuild/install.sh   # Instalar el binario en otra ruta
+```
+
+`programBuild/` está en `.gitignore`: se genera, no se versiona.
