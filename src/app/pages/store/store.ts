@@ -8,6 +8,15 @@ import { managerLabel } from '../../format';
 @Component({
   selector: 'app-store',
   standalone: true,
+  styles: [`
+    .dots::after { content: ''; animation: dots 1.2s steps(1) infinite; }
+    @keyframes dots {
+      0% { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+    }
+  `],
   template: `
     <header class="mb-6">
       <h1 class="text-2xl font-bold text-white">Tienda</h1>
@@ -35,6 +44,19 @@ import { managerLabel } from '../../format';
         {{ loading() ? 'Buscando…' : 'Buscar' }}
       </button>
     </div>
+
+    @if (loading()) {
+      <div class="mt-8 flex flex-col items-center gap-4 rounded-2xl border border-border bg-surface/60 py-16">
+        <svg class="h-10 w-10 animate-spin text-accent2" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        <p class="text-sm font-medium text-slate-300">
+          Buscando coincidencias<span class="dots"></span>
+        </p>
+        <p class="animate-pulse text-xs text-muted">consultando instalados, repos y AUR…</p>
+      </div>
+    }
 
     @if (searched() && results().length === 0 && !loading()) {
       <div class="mt-8 rounded-2xl border border-dashed border-border py-16 text-center text-sm text-muted">
