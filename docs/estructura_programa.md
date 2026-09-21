@@ -86,6 +86,14 @@ terminal integrada (PTY + xterm.js).
   - **Clasificación Internet**: palabras de mensajería (`chat`, `voice`, `discord`,
     `telegram`…) → Discord y similares ya no caen en Ofimática; los `subs` cortos
     (`tex`, `go`…) solo valen como palabra completa.
+- ✅ **Mejoras de 2026-09-21 (programas por gestor + orden)**:
+  - Tabs dinámicas por gestor (`Todas | Pacman | YAY/AUR | …`): una por cada manager
+    con paquetes (`managerTabLabel`, `MANAGER_TAB_ORDER`); flatpak/snap aparecen solos
+    si se activan. La categoría queda como insignia.
+  - Filtros en todos los tabs: desplegable Origen (desconocido siempre pasa),
+    desplegable Sección (solo tab Pacman, con contadores) y desplegable Orden
+    (Nombre A–Z, Tamaño ↓, Instalación ↓). `install_date` (epoch, `parse_pacman_date`)
+    en `Pkg` (0 si se desconoce).
 
 ### Notas de integración (importantes)
 

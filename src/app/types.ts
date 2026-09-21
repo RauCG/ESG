@@ -41,6 +41,7 @@ export interface Pkg {
   size: number;
   explicit: boolean;
   origin: Origin | '';
+  installDate: number;
   desktopFiles: string[];
   update: UpdateInfo | null;
 }

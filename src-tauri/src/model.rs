@@ -81,6 +81,8 @@ pub struct Pkg {
     /// Origen en Arch: "sistema" (grupo base), "dependencia" o "extra".
     /// Vacío cuando no se conoce (otros gestores).
     pub origin: String,
+    /// Fecha de instalación (epoch UTC, 0 si se desconoce). Solo Arch.
+    pub install_date: i64,
     pub desktop_files: Vec<String>,
     pub update: Option<UpdateInfo>,
 }

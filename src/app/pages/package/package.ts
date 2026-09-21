@@ -298,6 +298,7 @@ export class PackageDetailPage {
       size: d.installedSize,
       explicit: d.explicit,
       origin: d.origin,
+      installDate: 0,
       desktopFiles: d.desktopFiles,
       update: d.update,
     };

@@ -5,8 +5,8 @@ import { SettingsService } from '../../core/settings.service';
 import { OpsService } from '../../core/ops.service';
 import { TerminalService } from '../../core/terminal.service';
 import { PackageCard } from '../../components/package-card';
-import { Category, Origin, Pkg, Section } from '../../types';
-import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_ICON, SECTION_LABEL, SECTION_ORDER, classifySection, sectionColor } from '../../format';
+import { Origin, Pkg, Section } from '../../types';
+import { MANAGER_TAB_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_LABEL, SECTION_ORDER, classifySection, managerTabLabel, sectionColor } from '../../format';
 
 @Component({
   selector: 'app-programs',
@@ -74,64 +74,81 @@ import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_ICO
         Todas
         <span class="ml-1 text-xs opacity-70">{{ allCount() }}</span>
       </button>
-      @for (c of CATEGORY_ORDER; track c) {
+      @for (t of managerTabs(); track t.id) {
         <button
-          (click)="setTab(c)"
+          (click)="setTab(t.id)"
           class="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm transition"
-          [class.bg-accent]="tab() === c"
-          [class.text-white]="tab() === c"
-          [class.bg-surface2]="tab() !== c"
-          [class.text-slate-300]="tab() !== c"
+          [class.bg-accent]="tab() === t.id"
+          [class.text-white]="tab() === t.id"
+          [class.bg-surface2]="tab() !== t.id"
+          [class.text-slate-300]="tab() !== t.id"
         >
-          {{ CATEGORY_LABEL[c] }}
-          <span class="text-xs opacity-70">{{ countOf(c) }}</span>
-          @if (pendingOf(c).length > 0) {
-            <span class="rounded-full bg-ok px-1.5 text-[10px] font-bold text-black">{{ pendingOf(c).length }}</span>
+          {{ t.label }}
+          <span class="text-xs opacity-70">{{ t.count }}</span>
+          @if (t.pending > 0) {
+            <span class="rounded-full bg-ok px-1.5 text-[10px] font-bold text-black">{{ t.pending }}</span>
           }
         </button>
       }
-      <div class="ml-auto flex items-center gap-2">
-        @if (tab() === 'terminal') {
-          <div class="relative w-48">
-            @if (originOpen()) {
-              <div class="fixed inset-0 z-10" (click)="originOpen.set(false)"></div>
-            }
-            <button
-              (click)="originOpen.set(!originOpen())"
-              type="button"
-              class="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
-            >
-              <span class="truncate">{{ originLabel() }}</span>
-              <svg class="h-4 w-4 shrink-0 text-muted transition" [class.rotate-180]="originOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
-            </button>
-            @if (originOpen()) {
-              <div class="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-border bg-surface2 shadow-2xl">
+      <div class="ml-auto flex flex-wrap items-center gap-2">
+        <div class="relative w-44">
+          @if (originOpen()) {
+            <div class="fixed inset-0 z-10" (click)="originOpen.set(false)"></div>
+          }
+          <button
+            (click)="originOpen.set(!originOpen())"
+            type="button"
+            class="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
+          >
+            <span class="truncate">{{ originLabel() }}</span>
+            <svg class="h-4 w-4 shrink-0 text-muted transition" [class.rotate-180]="originOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+          @if (originOpen()) {
+            <div class="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-border bg-surface2 shadow-2xl">
+              <button
+                (click)="setOrigin('todas')"
+                type="button"
+                class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
+              >
+                <span>Todos</span>
+                @if (originFilter() === 'todas') {
+                  <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
+                }
+              </button>
+              @for (o of ORIGIN_ORDER; track o) {
                 <button
-                  (click)="setOrigin('todas')"
+                  (click)="setOrigin(o)"
                   type="button"
                   class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
                 >
-                  <span>Todos</span>
-                  @if (originFilter() === 'todas') {
+                  <span>{{ ORIGIN_LABEL[o] }}</span>
+                  @if (originFilter() === o) {
                     <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
                   }
                 </button>
-                @for (o of ORIGIN_ORDER; track o) {
-                  <button
-                    (click)="setOrigin(o)"
-                    type="button"
-                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
-                  >
-                    <span>{{ ORIGIN_LABEL[o] }}</span>
-                    @if (originFilter() === o) {
-                      <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
-                    }
-                  </button>
-                }
-              </div>
+              }
+            </div>
+          }
+        </div>
+        @if (tab() === 'pacman') {
+          <select
+            (change)="sec.set($any($event.target).value)"
+            class="w-44 cursor-pointer appearance-none rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
+          >
+            <option value="todas">Sección: todas</option>
+            @for (s of sectionOptions(); track s.s) {
+              <option [value]="s.s" [selected]="sec() === s.s">{{ SECTION_LABEL[s.s] }} ({{ s.count }})</option>
             }
-          </div>
+          </select>
         }
+        <select
+          (change)="sortBy.set($any($event.target).value)"
+          class="w-44 cursor-pointer appearance-none rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
+        >
+          <option value="nombre" [selected]="sortBy() === 'nombre'">Nombre (A–Z)</option>
+          <option value="tamano" [selected]="sortBy() === 'tamano'">Tamaño ↓</option>
+          <option value="fecha" [selected]="sortBy() === 'fecha'">Instalación ↓</option>
+        </select>
         <div class="w-64">
           <input
             type="search"
@@ -143,66 +160,23 @@ import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_ICO
       </div>
     </div>
 
-    @if (tab() === 'terminal' && sub() === null) {
-      @if (sections().length === 0) {
-        <div class="rounded-2xl border border-dashed border-border py-16 text-center text-sm text-muted">
-          No hay programas de terminal instalados
-        </div>
-      } @else {
-        <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-          @for (s of sections(); track s.section) {
-            <button
-              (click)="sub.set(s.section)"
-              class="group flex flex-col items-start gap-3 rounded-2xl border border-border bg-surface p-5 text-left transition hover:border-accent/40 hover:bg-surface2"
-            >
-              <span class="flex h-10 w-10 items-center justify-center rounded-xl {{ sectionColor(s.section) }}">
-                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path [attr.d]="SECTION_ICON[s.section]" />
-                </svg>
-              </span>
-              <span>
-                <span class="block text-sm font-semibold text-white">{{ SECTION_LABEL[s.section] }}</span>
-                <span class="block text-xs text-muted">{{ s.count }} {{ s.count === 1 ? 'programa' : 'programas' }}</span>
-              </span>
-            </button>
-          }
-        </div>
-      }
+    @if (filtered().length === 0) {
+      <div class="rounded-2xl border border-dashed border-border py-16 text-center text-sm text-muted">
+        No se encontraron programas
+      </div>
     } @else {
-      @if (tab() === 'terminal' && sub() !== null) {
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-4 py-3">
-          <button
-            (click)="sub.set(null)"
-            class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted transition hover:bg-surface2 hover:text-white"
-          >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M19 12H5m0 0l6 6m-6-6l6-6" /></svg>
-            Volver a secciones
-          </button>
-          <div class="flex items-center gap-2 text-sm">
-            <span class="font-semibold text-white">{{ SECTION_LABEL[sub()!] }}</span>
-            <span class="text-xs text-muted">{{ countOfSection(sub()!) }} programas</span>
-          </div>
-        </div>
-      }
-
-      @if (filtered().length === 0) {
-        <div class="rounded-2xl border border-dashed border-border py-16 text-center text-sm text-muted">
-          No se encontraron programas
-        </div>
-      } @else {
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          @for (pkg of filtered(); track pkg.manager + ':' + pkg.name) {
-            <app-package-card
-              [pkg]="pkg"
-              (launch)="launch($event)"
-              (openTerminal)="openInTerminal($event)"
-              (update)="updateOne($event)"
-              (uninstall)="askUninstall($event)"
-              (details)="goDetails($event)"
-            />
-          }
-        </div>
-      }
+      <div class="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
+        @for (pkg of filtered(); track pkg.manager + ':' + pkg.name) {
+          <app-package-card
+            [pkg]="pkg"
+            (launch)="launch($event)"
+            (openTerminal)="openInTerminal($event)"
+            (update)="updateOne($event)"
+            (uninstall)="askUninstall($event)"
+            (details)="goDetails($event)"
+          />
+        }
+      </div>
     }
 
     @if (toUninstall()) {
@@ -240,17 +214,15 @@ export class ProgramsPage {
   terminal = inject(TerminalService);
   router = inject(Router);
 
-  protected readonly CATEGORY_ORDER = CATEGORY_ORDER;
-  protected readonly CATEGORY_LABEL = CATEGORY_LABEL;
   protected readonly ORIGIN_ORDER = ORIGIN_ORDER;
   protected readonly ORIGIN_LABEL = ORIGIN_LABEL;
   protected readonly SECTION_ORDER = SECTION_ORDER;
   protected readonly SECTION_LABEL = SECTION_LABEL;
-  protected readonly SECTION_ICON = SECTION_ICON;
-  protected readonly sectionColor = sectionColor;
+  protected readonly managerTabLabel = managerTabLabel;
 
-  tab = signal<Category>('all');
-  sub = signal<Section | null>(null);
+  tab = signal<string>('all');
+  sec = signal<Section | 'todas'>('todas');
+  sortBy = signal<'nombre' | 'tamano' | 'fecha'>('nombre');
   originFilter = signal<Origin | 'todas'>('todas');
   originOpen = signal(false);
   query = signal('');
@@ -265,10 +237,10 @@ export class ProgramsPage {
     }
   }
 
-  setTab(c: Category) {
-    this.sub.set(null);
+  setTab(m: string) {
+    this.sec.set('todas');
     this.originFilter.set('todas');
-    this.tab.set(c);
+    this.tab.set(m);
   }
 
   setOrigin(o: Origin | 'todas') {
@@ -285,41 +257,57 @@ export class ProgramsPage {
     return this.packages.packages().length;
   }
 
-  countOf(c: Category) {
-    return this.packages.packages().filter((p) => p.category === c).length;
+  managerTabs() {
+    const pkgs = this.packages.packages();
+    const order = (m: string) => {
+      const i = MANAGER_TAB_ORDER.indexOf(m);
+      return i < 0 ? 99 : i;
+    };
+    const ids = [...new Set(pkgs.map((p) => p.manager))].sort((a, b) => order(a) - order(b));
+    return ids.map((id) => ({
+      id,
+      label: managerTabLabel(id),
+      count: pkgs.filter((p) => p.manager === id).length,
+      pending: pkgs.filter((p) => p.manager === id && p.update).length,
+    }));
   }
 
-  sections() {
-    return SECTION_ORDER.map((s) => ({ section: s, count: this.countOfSection(s) })).filter(
-      (s) => s.count > 0,
-    );
-  }
-
-  countOfSection(s: Section) {
+  sectionOptions() {
     const o = this.originFilter();
-    return this.packages.packages().filter((p) => p.category === 'terminal' && classifySection(p) === s && (o === 'todas' || p.origin === o)).length;
+    return SECTION_ORDER.map((s) => ({
+      s,
+      count: this.packages.packages().filter(
+        (p) => p.category === 'terminal' && classifySection(p) === s && (o === 'todas' || !p.origin || p.origin === o),
+      ).length,
+    })).filter((x) => x.count > 0);
   }
 
   pending(): Pkg[] {
     return this.packages.availableUpdates();
   }
 
-  pendingOf(c: Category) {
-    return this.packages.packages().filter((p) => p.category === c && p.update);
-  }
-
   filtered = computed(() => {
     const q = this.query().trim().toLowerCase();
     const t = this.tab();
-    const s = this.sub();
+    const sec = this.sec();
     const o = this.originFilter();
-    return this.packages.packages().filter((p) => {
-      if (t !== 'all' && p.category !== t) return false;
-      if (t === 'terminal' && s !== null && classifySection(p) !== s) return false;
-      if (t === 'terminal' && o !== 'todas' && p.origin !== o) return false;
+    const sort = this.sortBy();
+    const list = this.packages.packages().filter((p) => {
+      if (t !== 'all' && p.manager !== t) return false;
+      if (t === 'pacman' && sec !== 'todas' && (p.category !== 'terminal' || classifySection(p) !== sec)) return false;
+      if (o !== 'todas' && p.origin && p.origin !== o) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     });
+    const arr = [...list];
+    if (sort === 'tamano') {
+      arr.sort((a, b) => (b.size || 0) - (a.size || 0) || a.name.localeCompare(b.name));
+    } else if (sort === 'fecha') {
+      arr.sort((a, b) => (b.installDate || 0) - (a.installDate || 0) || a.name.localeCompare(b.name));
+    } else {
+      arr.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return arr;
   });
 
   async refresh() {

@@ -61,6 +61,31 @@ export function categoryColor(c: Category): string {
   }
 }
 
+export const MANAGER_TAB_ORDER = ['pacman', 'yay', 'paru', 'apt', 'dnf', 'zypper', 'flatpak', 'snap'];
+
+export function managerTabLabel(m: string): string {
+  switch (m) {
+    case 'yay':
+      return 'YAY/AUR';
+    case 'paru':
+      return 'PARU/AUR';
+    case 'pacman':
+      return 'Pacman';
+    case 'apt':
+      return 'APT';
+    case 'dnf':
+      return 'DNF';
+    case 'zypper':
+      return 'Zypper';
+    case 'flatpak':
+      return 'Flatpak';
+    case 'snap':
+      return 'Snap';
+    default:
+      return m;
+  }
+}
+
 export function managerLabel(m: string): string {
   switch (m) {
     case 'pacman':

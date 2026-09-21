@@ -104,6 +104,7 @@ struct ArchInfo {
     size: i64,
     groups: Vec<String>,
     depends: Vec<String>,
+    install_ts: i64,
 }
 
 /// Cierre de dependencias del sistema base: `base` + núcleos instalados y
@@ -137,7 +138,12 @@ fn system_closure(info: &HashMap<String, ArchInfo>) -> HashSet<String> {
 
 /// Origen de un paquete Arch: "sistema" (grupo base o dentro del cierre del
 /// sistema), "extra" (extranjero/AUR o explícito de usuario) o "dependencia".
-fn arch_origin(is_foreign: bool, is_explicit: bool, groups: &[String], in_system: bool) -> &'static str {
+fn arch_origin(
+    is_foreign: bool,
+    is_explicit: bool,
+    groups: &[String],
+    in_system: bool,
+) -> &'static str {
     if is_foreign {
         "extra"
     } else if in_system || groups.iter().any(|g| g == "base" || g == "base-devel") {
@@ -179,7 +185,19 @@ fn arch_info_map() -> HashMap<String, ArchInfo> {
             let depends = field_block(block, "Depends On")
                 .map(|d| d.split_whitespace().filter_map(dep_name).collect())
                 .unwrap_or_default();
-            info.insert(name, ArchInfo { desc, size, groups, depends });
+            let install_ts = field_value(block, "Install Date")
+                .map(|d| crate::util::parse_pacman_date(&d))
+                .unwrap_or(0);
+            info.insert(
+                name,
+                ArchInfo {
+                    desc,
+                    size,
+                    groups,
+                    depends,
+                    install_ts,
+                },
+            );
         }
     }
     info
@@ -242,6 +260,7 @@ fn list_arch(app: &tauri::AppHandle, show_deps: bool) -> Result<Vec<Pkg>, String
             size: ai.size,
             explicit: is_explicit || is_foreign,
             origin: arch_origin(is_foreign, is_explicit, &ai.groups, sys.contains(name)).into(),
+            install_date: ai.install_ts,
             desktop_files: desktop,
             update: None,
         });
@@ -295,6 +314,7 @@ fn list_deb(show_deps: bool) -> Result<Vec<Pkg>, String> {
             update: None,
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(out)
@@ -348,6 +368,7 @@ fn list_rpm(show_deps: bool, dialer: &str) -> Result<Vec<Pkg>, String> {
             update: None,
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(out)
@@ -388,6 +409,7 @@ fn list_flatpak() -> Result<Vec<Pkg>, String> {
             size: 0,
             explicit: true,
             origin: String::new(),
+            install_date: 0,
             desktop_files: vec![],
             update: None,
         });
@@ -417,6 +439,7 @@ fn list_snap() -> Result<Vec<Pkg>, String> {
             update: None,
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(out)
@@ -574,6 +597,7 @@ fn arch_updates(_app: &tauri::AppHandle, use_helper: bool) -> Result<Vec<Pkg>, S
             }),
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(v)
@@ -603,6 +627,7 @@ fn deb_updates() -> Result<Vec<Pkg>, String> {
                 }),
 
                 origin: String::new(),
+                install_date: 0,
             });
         }
     }
@@ -635,6 +660,7 @@ fn dnf_updates() -> Result<Vec<Pkg>, String> {
             }),
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(v)
@@ -661,6 +687,7 @@ fn zypper_updates() -> Result<Vec<Pkg>, String> {
                 }),
 
                 origin: String::new(),
+                install_date: 0,
             });
         }
     }
@@ -704,6 +731,7 @@ fn flatpak_updates() -> Result<Vec<Pkg>, String> {
             }),
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(v)
@@ -732,6 +760,7 @@ fn snap_updates() -> Result<Vec<Pkg>, String> {
             }),
 
             origin: String::new(),
+            install_date: 0,
         });
     }
     Ok(v)
@@ -846,7 +875,13 @@ fn search_installed_arch(
             } else {
                 "instalado".into()
             },
-            origin: arch_origin(is_foreign, explicit.contains(&name), &ai.groups, sys.contains(&name)).into(),
+            origin: arch_origin(
+                is_foreign,
+                explicit.contains(&name),
+                &ai.groups,
+                sys.contains(&name),
+            )
+            .into(),
         });
     }
     names
@@ -1364,7 +1399,13 @@ fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<Pkg
         let gui = desktop_owners_arch();
         d.desktop_files = gui.get(&d.name).cloned().unwrap_or_default();
         let sys = system_closure(&arch_info_map());
-        d.origin = arch_origin(is_foreign, explicit.contains(&d.name), &d.groups, sys.contains(&d.name)).into();
+        d.origin = arch_origin(
+            is_foreign,
+            explicit.contains(&d.name),
+            &d.groups,
+            sys.contains(&d.name),
+        )
+        .into();
         d.category = if is_foreign {
             "aur".into()
         } else if !d.desktop_files.is_empty() {
@@ -1835,6 +1876,7 @@ pub fn get_orphans(app: &tauri::AppHandle) -> Vec<Pkg> {
             size: 0,
             explicit: false,
             origin: "dependencia".into(),
+            install_date: 0,
             desktop_files: vec![],
             update: None,
         })
@@ -1938,11 +1980,23 @@ mod tests {
         let mut info = HashMap::new();
         info.insert(
             "base".to_string(),
-            ArchInfo { desc: String::new(), size: 0, groups: vec![], depends: vec!["bash".to_string(), "glibc".to_string()] },
+            ArchInfo {
+                desc: String::new(),
+                size: 0,
+                groups: vec![],
+                depends: vec!["bash".to_string(), "glibc".to_string()],
+                install_ts: 0,
+            },
         );
         info.insert(
             "bash".to_string(),
-            ArchInfo { desc: String::new(), size: 0, groups: vec![], depends: vec!["glibc".to_string(), "readline".to_string()] },
+            ArchInfo {
+                desc: String::new(),
+                size: 0,
+                groups: vec![],
+                depends: vec!["glibc".to_string(), "readline".to_string()],
+                install_ts: 0,
+            },
         );
         info.insert("glibc".to_string(), ArchInfo::default());
         info.insert("readline".to_string(), ArchInfo::default());

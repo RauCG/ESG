@@ -162,6 +162,44 @@ pub fn parse_installed_size(s: &str) -> i64 {
     (f * mult) as i64
 }
 
+/// Parsea fechas de `pacman -Qi` ("Mon Sep 21 11:59:59 2026", locale C)
+/// a epoch (UTC). 0 si no parsea. Basta para ordenar por instalación.
+pub fn parse_pacman_date(s: &str) -> i64 {
+    let p: Vec<&str> = s.split_whitespace().collect();
+    if p.len() != 5 {
+        return 0;
+    }
+    let month = match p[1] {
+        "Jan" => 1,
+        "Feb" => 2,
+        "Mar" => 3,
+        "Apr" => 4,
+        "May" => 5,
+        "Jun" => 6,
+        "Jul" => 7,
+        "Aug" => 8,
+        "Sep" => 9,
+        "Oct" => 10,
+        "Nov" => 11,
+        "Dec" => 12,
+        _ => return 0,
+    };
+    let day: i64 = p[2].parse().unwrap_or(0);
+    let year: i64 = p[4].parse().unwrap_or(0);
+    let t: Vec<i64> = p[3].split(':').map(|x| x.parse().unwrap_or(0)).collect();
+    if day == 0 || year == 0 || t.len() != 3 {
+        return 0;
+    }
+    // days_from_civil (Howard Hinnant), época Unix.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    (era * 146097 + doe - 719468) * 86400 + t[0] * 3600 + t[1] * 60 + t[2]
+}
+
 pub fn desktop_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![
         PathBuf::from("/usr/share/applications"),
@@ -231,5 +269,14 @@ installed: 1.2.3 (5)
         let block = "Foo: a\nDescription: d1\nd2\nHomepage: http://x\n";
         let desc = field_block(block, "Description");
         assert_eq!(desc.as_deref(), Some("d1\nd2"));
+    }
+
+    #[test]
+    fn parse_pacman_date_ordena_fechas() {
+        let a = parse_pacman_date("Thu Sep  3 16:44:41 2026");
+        let b = parse_pacman_date("Mon Sep 21 11:59:59 2026");
+        assert!(a > 0 && b > a, "a={a} b={b}");
+        assert_eq!(parse_pacman_date(""), 0);
+        assert_eq!(parse_pacman_date("sin fecha"), 0);
     }
 }
