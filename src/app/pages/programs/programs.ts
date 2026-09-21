@@ -91,6 +91,16 @@ import { MANAGER_TAB_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_LABEL, SECTION_O
         </button>
       }
       <div class="ml-auto flex flex-wrap items-center gap-2">
+        <button
+          (click)="resetFilters()"
+          type="button"
+          title="Restablecer todos los filtros"
+          class="inline-flex items-center justify-center rounded-xl border border-border bg-surface2 p-2 text-muted transition hover:border-accent/50 hover:text-white"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M4 4v5h5M20 20v-5h-5 M5.1 14a7 7 0 0112.4 3.2M18.9 10A7 7 0 006.5 6.8" />
+          </svg>
+        </button>
         <div class="relative w-44">
           @if (originOpen()) {
             <div class="fixed inset-0 z-10" (click)="originOpen.set(false)"></div>
@@ -175,6 +185,7 @@ import { MANAGER_TAB_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_LABEL, SECTION_O
         <div class="w-64">
           <input
             type="search"
+            [value]="query()"
             (input)="query.set($any($event.target).value)"
             placeholder="Buscar por nombre o descripción…"
             class="w-full rounded-xl border border-border bg-surface2 px-4 py-2 text-sm text-white outline-none transition focus:border-accent"
@@ -273,8 +284,18 @@ export class ProgramsPage {
   }
 
   setSort(v: 'nombre-asc' | 'nombre-desc' | 'tamano-asc' | 'tamano-desc' | 'fecha-asc' | 'fecha-desc') {
-    this.sortBy.set(v);
+    // Clic en la opción activa la quita y vuelve al orden por defecto.
+    this.sortBy.set(this.sortBy() === v ? 'nombre-asc' : v);
     this.sortOpen.set('');
+  }
+
+  resetFilters() {
+    this.originFilter.set('todas');
+    this.originOpen.set(false);
+    this.sec.set('todas');
+    this.sortBy.set('nombre-asc');
+    this.sortOpen.set('');
+    this.query.set('');
   }
 
   sortDropdowns() {
