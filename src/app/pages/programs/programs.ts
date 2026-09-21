@@ -168,12 +168,12 @@ import { MANAGER_TAB_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_LABEL, SECTION_O
               <div class="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-border bg-surface2 shadow-2xl">
                 @for (opt of cfg.opts; track opt.v) {
                   <button
-                    (click)="setSort(opt.v)"
+                    (click)="opt.run()"
                     type="button"
                     class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
                   >
                     <span>{{ opt.label }}</span>
-                    @if (sortBy() === opt.v) {
+                    @if (opt.active) {
                       <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
                     }
                   </button>
@@ -256,7 +256,10 @@ export class ProgramsPage {
 
   tab = signal<string>('all');
   sec = signal<Section | 'todas'>('todas');
-  sortBy = signal<'nombre-asc' | 'nombre-desc' | 'tamano-asc' | 'tamano-desc' | 'fecha-asc' | 'fecha-desc'>('nombre-asc');
+  // Ordenación múltiple: cada clave independiente ('' = sin ordenar por ella).
+  sortFecha = signal<'' | 'asc' | 'desc'>('');
+  sortTamano = signal<'' | 'asc' | 'desc'>('');
+  sortNombre = signal<'asc' | 'desc'>('asc');
   sortOpen = signal<'' | 'nombre' | 'tamano' | 'fecha'>('');
   originFilter = signal<Origin | 'todas'>('todas');
   originOpen = signal(false);
@@ -283,9 +286,18 @@ export class ProgramsPage {
     this.originOpen.set(false);
   }
 
-  setSort(v: 'nombre-asc' | 'nombre-desc' | 'tamano-asc' | 'tamano-desc' | 'fecha-asc' | 'fecha-desc') {
-    // Clic en la opción activa la quita y vuelve al orden por defecto.
-    this.sortBy.set(this.sortBy() === v ? 'nombre-asc' : v);
+  setSortFecha(v: 'asc' | 'desc') {
+    this.sortFecha.set(this.sortFecha() === v ? '' : v);
+    this.sortOpen.set('');
+  }
+
+  setSortTamano(v: 'asc' | 'desc') {
+    this.sortTamano.set(this.sortTamano() === v ? '' : v);
+    this.sortOpen.set('');
+  }
+
+  setSortNombre(v: 'asc' | 'desc') {
+    this.sortNombre.set(this.sortNombre() === v ? 'asc' : v);
     this.sortOpen.set('');
   }
 
@@ -293,37 +305,40 @@ export class ProgramsPage {
     this.originFilter.set('todas');
     this.originOpen.set(false);
     this.sec.set('todas');
-    this.sortBy.set('nombre-asc');
+    this.sortFecha.set('');
+    this.sortTamano.set('');
+    this.sortNombre.set('asc');
     this.sortOpen.set('');
     this.query.set('');
   }
 
   sortDropdowns() {
-    const s = this.sortBy();
-    const active = (v: string) => s === v;
+    const f = this.sortFecha();
+    const t = this.sortTamano();
+    const n = this.sortNombre();
     return [
       {
         key: 'nombre' as const,
-        label: active('nombre-asc') ? 'Nombre: A–Z' : active('nombre-desc') ? 'Nombre: Z–A' : 'Nombre',
+        label: n === 'asc' ? 'Nombre: A–Z' : 'Nombre: Z–A',
         opts: [
-          { v: 'nombre-asc' as const, label: 'A–Z' },
-          { v: 'nombre-desc' as const, label: 'Z–A' },
+          { v: 'nombre-asc' as const, label: 'A–Z', active: n === 'asc', run: () => this.setSortNombre('asc') },
+          { v: 'nombre-desc' as const, label: 'Z–A', active: n === 'desc', run: () => this.setSortNombre('desc') },
         ],
       },
       {
         key: 'tamano' as const,
-        label: active('tamano-asc') ? 'Tamaño: menor' : active('tamano-desc') ? 'Tamaño: mayor' : 'Tamaño',
+        label: t === 'asc' ? 'Tamaño: menor' : t === 'desc' ? 'Tamaño: mayor' : 'Tamaño',
         opts: [
-          { v: 'tamano-asc' as const, label: 'Menor' },
-          { v: 'tamano-desc' as const, label: 'Mayor' },
+          { v: 'tamano-asc' as const, label: 'Menor', active: t === 'asc', run: () => this.setSortTamano('asc') },
+          { v: 'tamano-desc' as const, label: 'Mayor', active: t === 'desc', run: () => this.setSortTamano('desc') },
         ],
       },
       {
         key: 'fecha' as const,
-        label: active('fecha-asc') ? 'Instalación: menor' : active('fecha-desc') ? 'Instalación: mayor' : 'Instalación',
+        label: f === 'asc' ? 'Instalación: menor' : f === 'desc' ? 'Instalación: mayor' : 'Instalación',
         opts: [
-          { v: 'fecha-asc' as const, label: 'Menor' },
-          { v: 'fecha-desc' as const, label: 'Mayor' },
+          { v: 'fecha-asc' as const, label: 'Menor', active: f === 'asc', run: () => this.setSortFecha('asc') },
+          { v: 'fecha-desc' as const, label: 'Mayor', active: f === 'desc', run: () => this.setSortFecha('desc') },
         ],
       },
     ];
@@ -372,7 +387,6 @@ export class ProgramsPage {
     const t = this.tab();
     const sec = this.sec();
     const o = this.originFilter();
-    const sort = this.sortBy();
     const list = this.packages.packages().filter((p) => {
       if (t !== 'all' && p.manager !== t) return false;
       if (t === 'pacman' && sec !== 'todas' && (p.category !== 'terminal' || classifySection(p) !== sec)) return false;
@@ -381,29 +395,27 @@ export class ProgramsPage {
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     });
     const arr = [...list];
+    // Ordenación múltiple simultánea: Instalación → Tamaño → Nombre.
     // Sin dato (0) siempre al final, en ambas direcciones.
     const numOr = (v: number | null | undefined, dir: 1 | -1) =>
       v ? v : dir === 1 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-    switch (sort) {
-      case 'nombre-desc':
-        arr.sort((a, b) => b.name.localeCompare(a.name));
-        break;
-      case 'tamano-asc':
-        arr.sort((a, b) => numOr(a.size, 1) - numOr(b.size, 1) || a.name.localeCompare(b.name));
-        break;
-      case 'tamano-desc':
-        arr.sort((a, b) => numOr(b.size, -1) - numOr(a.size, -1) || a.name.localeCompare(b.name));
-        break;
-      case 'fecha-asc':
-        arr.sort((a, b) => numOr(a.installDate, 1) - numOr(b.installDate, 1) || a.name.localeCompare(b.name));
-        break;
-      case 'fecha-desc':
-        arr.sort((a, b) => numOr(b.installDate, -1) - numOr(a.installDate, -1) || a.name.localeCompare(b.name));
-        break;
-      default:
-        arr.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-    }
+    const sF = this.sortFecha();
+    const sT = this.sortTamano();
+    const sN = this.sortNombre();
+    arr.sort((a, b) => {
+      if (sF === 'asc' || sF === 'desc') {
+        const dir = sF === 'asc' ? 1 : -1;
+        const d = (numOr(a.installDate, dir) - numOr(b.installDate, dir)) * dir;
+        if (d !== 0) return d;
+      }
+      if (sT === 'asc' || sT === 'desc') {
+        const dir = sT === 'asc' ? 1 : -1;
+        const d = (numOr(a.size, dir) - numOr(b.size, dir)) * dir;
+        if (d !== 0) return d;
+      }
+      const d = a.name.localeCompare(b.name);
+      return sN === 'asc' ? d : -d;
+    });
     return arr;
   });
 
