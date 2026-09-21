@@ -2,7 +2,7 @@
 
 Gestor de programas (paquetes) para Linux, de enfoque Arch-first. App de escritorio con Tauri 2 (Rust) + Angular 22 (TypeScript) + Tailwind CSS v4.
 
-Fecha del documento: 2026-09-11.
+Fecha del documento: 2026-09-21 (actualizado; versión inicial 2026-09-11).
 
 ---
 
@@ -20,15 +20,18 @@ terminal integrada (PTY + xterm.js).
   activa/desactiva durante el onboarding y en Ajustes. Cada gestor pertenece a una familia
   de sistema: `arch`, `debian`, `fedora`, `suse`, `flatpak-snap`.
 - **Contraseña sudo**: se solicita por diálogo, se valida con `sudo -S -v` (NUNCA se
-  persiste; sólo el timestamp de sudo se cachea) y se puede enviar inline si el propio
-  comando pide `[sudo] password for` durante la ejecución en PTY.
+  persiste; sólo el timestamp de sudo se cachea; la contraseña validada se retiene en
+  memoria para auto-envío) y se envía automáticamente si el propio
+  comando pide `[sudo] password for` durante la ejecución en PTY (caja manual como fallback).
 - **Operaciones en PTY**: todas las tareas (instalar, actualizar, limpiar, ...) corren en
   una sesión `bash -lc` vía `portable-pty`; la salida se transmite al front con
-  `tauri::ipc::Channel<PtsEvent>` (eventos `data` y `exit`).
-- **Categorías de programas**: GUI, Terminal, AUR, Flatpak, Snap (y categoría propia,
-  p.ej. aur), cada gestor aporta sus categorías a `PackagesService`.
+  `tauri::ipc::Channel<PtsEvent>` (eventos `data` y `exit`). El script captura el código
+  real (`code=$?; ...; exit $code`) y cada op vuelca su transcripción a `/tmp/esg-ops.log`.
+- **Categorías de programas**: GUI, Terminal, AUR, Flatpak, Snap, cada gestor aporta sus
+  categorías a `PackagesService`. Los paquetes Terminal se sub-clasifican en 11 secciones
+  funcionales (`format.ts: classifySection`). Solo `pacman -Qm` (extranjeros) da categoría AUR.
 - **Extras**: limpieza de paquetes huérfanos, limpieza de cachés, búsqueda en la Tienda y
-  actualización individual o completa.
+  actualización individual o completa (actualizaciones en serie para evitar `db.lck`).
 
 ### Estado
 
@@ -52,6 +55,27 @@ terminal integrada (PTY + xterm.js).
   - Nueva **pantalla de detalle** por paquete (`/programas/:manager/:name`): descripción,
     métricas (tamaño descarga/instalado, votos, popularidad), metadatos, dependencias y
     acciones según estado (Instalar / Actualizar / Abrir / Terminal / Desinstalar).
+  - **Secciones funcionales de Terminal**: 11 secciones (`sistema, utilidades, internet,
+    desarrollo, multimedia, graficos, juegos, ofimatica, educacion, configuracion, otras`)
+    con tarjetas y filtrado en el tab Terminal (`format.ts`, `programs.ts`); insignia de
+    sección en tarjeta y detalle.
+  - **Descripciones completas por gestor** + enriquecimiento AUR vía **RPC v5**
+    (`curl` con timeout, sin colgar sin red): descripción, votos, popularidad, out-of-date,
+    **maintainer**, **submitted**, **modified** (`PkgDetails.maintainer|submitted|modified`).
+  - **Auto-sudo**: el PTY fuerza `LC_ALL=C` (el prompt español `contraseña` colgaba las ops);
+    detección `/\[sudo\]\s+password\s+for/i`, auto-envío de la contraseña retenida,
+    `ROOT_BY_KIND` incluye yay/paru, `ops.run(..., wait=true)` y actualizaciones en serie.
+- ✅ **Mejoras de 2026-09-21** (verificadas con `cargo test` 10/10 + build + GUI):
+  - **"Error de Yay" cerrado como no-bug**: el log de ops demuestra `code=0`
+    (`Searching AUR for updates...` → `there is nothing to do`); la "parada" es la
+    consulta AUR por red, normal.
+  - **Códigos de salida reales** en ops (`code=$?; ...; exit $code`; antes siempre 0).
+  - **Log de operaciones** en `/tmp/esg-ops.log` (solo `kind=="op"`, modo 0600).
+  - **Compatibilidad yay v13** en `search_repos_arch`: acepta el corchete de antigüedad
+    `[307d16h]` de `yay -Ss` (antes: cero resultados AUR en Tienda).
+  - **Manager correcto en Tienda**: los resultados nativos de `yay -Ss` llevan
+    `manager: "pacman"` (antes `"yay"` para todo); el dedupe por (manager, nombre)
+    fusiona instalado+repo sin duplicados y el detalle abre la ruta correcta.
 
 ### Notas de integración (importantes)
 
@@ -77,7 +101,7 @@ ProgramaLocalRaux/
 │       ├── app.config.ts        # providers (router)
 │       ├── app.routes.ts        # Rutas (lazy loading por página)
 │       ├── types.ts             # Tipos compartidos (SystemInfo, Pkg, OpRequest, ...)
-│       ├── format.ts            # Utilidades de formato (bytes, categorías, gestores)
+│       ├── format.ts            # Formato (bytes, categorías, gestores) + secciones Terminal
 │       ├── core/                # Servicios (inyectables)
 │       │   ├── settings.service.ts   # Config persistente + detección + boot
 │       │   ├── packages.service.ts   # Listado, categorías, updates, orphans, caché, details
@@ -118,7 +142,9 @@ ProgramaLocalRaux/
 │       └── util.rs              # Helpers (desktop_dirs, command_exists, du)
 │
 ├── docs/                        # Documentación del proyecto
-│   └── estructura_programa.md   # Este documento
+│   ├── estructura_programa.md   # Este documento (arquitectura)
+│   ├── continuar_trabajo.md     # Contexto de sesión para retomar el trabajo
+│   └── revision_actualizaciones_yay.md  # Revisión antigua de yay (parcialmente desactualizada)
 └── package.json                 # Scripts: build, tauri dev, etc.
 ```
 
@@ -160,17 +186,27 @@ Tipos de operación (`OpKind`): `update`, `upgrade`, `install`, `uninstall`, `or
 - **`settings.rs`**: JSON en el directorio de configuración; lo lee `SettingsService.boot()`.
 - **`detect.rs`**: lee `/etc/os-release` y ejecuta la detección binario a binario.
 - **`packages.rs`**: ejecuta los gestores con argumentos estables; parsea la salida;
-  p.ej. `pacman -Qqe` / `pacman -Qm` (AUR), `apt list --installed`, `flatpak list --app`,
-  etc. Normaliza a `Pkg { name, manager, category }`. `search_packages` fusiona instalados
-  + repos + AUR en un solo resultado (dedupe, relevancia, votos/popularidad AUR,
-  `(Out-of-date)`). `package_details` consulta `-Si`/`-Qi` según el gestor.
+  p.ej. `pacman -Q` / `-Qe` (explícitos) / `-Qm` (extranjeros = AUR), `apt list --installed`,
+  `flatpak list --app`, etc. Normaliza a `Pkg { name, manager, category }` (solo extranjeros
+  → `category: "aur"` con manager = helper yay/paru). `search_packages` fusiona instalados
+  + repos + AUR en un solo resultado (dedupe por (manager, nombre), relevancia,
+  votos/popularidad AUR, `(Out-of-date)`; tolera el corchete de antigüedad `[NdNh]` de
+  yay v13; resultados nativos con `manager: "pacman"` aunque los liste yay).
+  `package_details` consulta `-Qi`/`-Si` según estado, y para AUR enriquece vía RPC v5
+  (`aur_rpc` con `curl` + timeout: descripción, votos, popularidad, maintainer, submitted,
+  modified). `arch_updates` usa el helper (`-Qu`) o `checkupdates`.
 - **`ops.rs`**: `script_for` genera el comando por `(kind, manager)`; `start_op` lo lanza
-  en PTY. Importante: script final = `echo '» label'; <script>; echo; echo 'Proceso finalizado ($?).'`.
+  en PTY. Script final = `echo '» label'; <script>; code=$?; echo; echo "Proceso finalizado
+  (código $code)."; exit $code` (el código real se propaga al evento `exit`).
 - **`pty.rs`**: mapa de sesiones (`Mutex<HashMap<u32, PtsSession>>`). `spawn_shell` crea el
-  PTY, lee de la máster, guarda `caption` (últimas ~4 KB) para replay y emite eventos via
-  Channel. `attach` reenvía el caption guardado al nuevo Channel.
-- **`sudo.rs`**: `verify_sudo` escribe la contraseña por stdin en `sudo -S -v`; devuelve
-  éxito/error. Nunca guarda la contraseña.
+  PTY con `LC_ALL=C`/`LANG=C` (sudo siempre pide en inglés), lee de la máster, guarda
+  `capture` (últimos 128 KB) para replay y emite eventos via Channel. `attach` reenvía el
+  capture guardado al nuevo Channel. Al terminar una op (`kind=="op"`) vuelca la
+  transcripción (últimos 8 KB) a `/tmp/esg-ops.log` (modo 0600).
+- **`sudo.rs`**: `verify_sudo` escribe la contraseña por stdin en `sudo -S -v` (detecta
+  también `contraseña incorrecta`); devuelve éxito/error. Nunca guarda la contraseña.
+- **`util.rs`**: `run_capture*` (siempre con locale C), `run_capture_timeout` (vía `timeout`
+  de coreutils, para llamadas remotas), `field_value`/`field_block`, `parse_installed_size`.
 
 ### 4.2 Frontend (Angular)
 
@@ -179,10 +215,15 @@ Tipos de operación (`OpKind`): `update`, `upgrade`, `install`, `uninstall`, `or
 - **`PackagesService`**: señal `pkgs`, `updates`, `loaded`; `refresh()` = `list_packages` +
   `list_updates` por cada gestor activo y fusiona `pkg.update`; `categories()` (orden desde
   `CATEGORY_ORDER`); `orphans()`, `cacheInfo()`, `search(q)`, `details(manager, name)`.
-- **`OpsService`**: señal `ops: ActiveOp[]`; `run(req, label)` crea un op con Channel,
-  acumula la salida, limpia ANSI y detecta `[sudo] password for` para pedir la contraseña
-  y enviarla inline (`verify_sudo` cuando aplica); `ROOT_BY_KIND` indica qué gestores
-  requieren root por tipo de operación.
+- **`OpsService`**: señal `ops: ActiveOp[]`; `run(req, label?, wait=false)` crea un op con
+  Channel, acumula la salida, limpia ANSI y detecta `[sudo] password for`
+  (`/\[sudo\]\s+password\s+for/i` sobre ventana de ~400 chars) para auto-enviar la
+  contraseña retenida (`SudoService.password()` + `sendPassword`) o pedirla inline como
+  fallback (`pendingSudo` + caja "Enviar contraseña"); `ROOT_BY_KIND` indica qué gestores
+  requieren root por tipo de operación (incluye yay/paru); con `wait=true` la promesa no
+  resuelve hasta el evento `exit` (actualizaciones en serie en Dashboard/Programas).
+- **`SudoService`**: retiene la contraseña validada en memoria (`stored`, getter
+  `password()`), se limpia al cancelar/fallar.
 - **`TerminalService`**: `open()` → `pty_create`; lista de `sessionId`s para la página Terminal.
 - **`ConsolePanel`**: al colapsarlo queda una barra inferior fija que lo reexpande (con la
   salida de la op activa) y al cerrarlo del todo, una píldora flotante "↥ Operaciones (n)";
@@ -212,16 +253,17 @@ Tipos de operación (`OpKind`): `update`, `upgrade`, `install`, `uninstall`, `or
 
 ## 6. Scripts de operación por gestor (resumen)
 
-| Operación | pacman         | yay/paru          | apt                     | dnf            |
-| --------- | -------------- | ----------------- | ----------------------- | -------------- |
-| update    | `pacman -Syu`  | `-Syu --cleanafter`| `update && upgrade -y`  | `dnf upgrade`  |
-| upgrade   | `pacman -Syu`  | `-S --needed`     | `install --only-upgrade`| `dnf upgrade`  |
-| install   | `pacman -S --needed` | `-S --needed` | `install -y`       | `dnf install`  |
-| uninstall | `pacman -Rns`  | `pacman -Rns`     | `autoremove --purge`    | `dnf remove`   |
-| orphans   | script `-Qtdq` | —                 | `autoremove`            | `dnf autoremove`|
-| cache     | `paccache`     | `-Sc`             | `apt-get clean`         | `dnf clean all`|
+| Operación | pacman                  | yay/paru                     | apt                     | dnf            |
+| --------- | ----------------------- | ---------------------------- | ----------------------- | -------------- |
+| update    | `sudo pacman -Syu --noconfirm` | `<mgr> -Syu --noconfirm --cleanafter` | `update && upgrade -y` | `dnf upgrade -y` |
+| upgrade   | `sudo pacman -Syu --noconfirm` | `<mgr> -S --noconfirm --needed` | `install --only-upgrade`| `dnf upgrade -y` |
+| install   | `sudo pacman -S --noconfirm --needed` | `<mgr> -S --noconfirm --needed` | `install -y` | `dnf install -y` |
+| uninstall | `sudo pacman -Rns --noconfirm` | `sudo pacman -Rns --noconfirm` | `autoremove --purge` | `dnf remove -y` |
+| orphans   | script `-Qtdq`          | —                            | `autoremove -y`         | `dnf autoremove -y`|
+| cache     | `paccache -rk1 && -ruk0`| `<mgr> -Sc --noconfirm`      | `apt-get clean`         | `dnf clean all`|
 
-Más gestores: `zypper`, `flatpak`, `snap`.
+Más gestores: `zypper`, `flatpak`, `snap`. Nota: yay/paru corren SIN sudo prefijado porque
+ellos mismos elevan privilegios (el auto-sudo del PTY responde a su prompt interno).
 
 ---
 
@@ -230,6 +272,7 @@ Más gestores: `zypper`, `flatpak`, `snap`.
 ```bash
 npm run build        # Build de producción del front (out: dist/ESG)
 npm run tauri dev    # Entorno de desarrollo (también compila Rust)
+cd src-tauri && cargo test         # Tests del backend (10 tests)
 cd src-tauri && cargo build        # Solo backend
 cd src-tauri && cargo check        # Chequeo rápido del backend
 ```
@@ -246,8 +289,8 @@ cd src-tauri && cargo check        # Chequeo rápido del backend
 
 ## 8. Pendientes / próximos pasos
 
-- Verificación visual final de las nuevas pantallas en la GUI (tienda con badges,
-  detalle de paquete, barra de consola, listbox de familia).
-- Probar flujos completos en la GUI (onboarding, listado, actualización, terminal).
+- Verificación visual en GUI del fix de managers de la Tienda (una sola entrada por
+  programa, insignia `pacman` en nativos).
+- Repo GitHub creado: `https://github.com/RauCG/ESG` (privado, rama `main`).
 - Decisiones futuras: empaquetado (`bundle` actualmente desactivado), flatpak/snap reales
   instalados en el sistema de destino.
