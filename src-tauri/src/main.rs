@@ -18,7 +18,10 @@ fn tune_graphics_env() {
     if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    if std::env::var("DISPLAY").is_ok() && std::env::var("GDK_BACKEND").is_err() {
+    // Si la sesión exporta GDK_BACKEND=wayland por defecto no se considera elección
+    // explícita del usuario: con XWayland disponible se usa x11 (más estable).
+    let backend = std::env::var("GDK_BACKEND").unwrap_or_default();
+    if std::env::var("DISPLAY").is_ok() && (backend.is_empty() || backend == "wayland") {
         std::env::set_var("GDK_BACKEND", "x11");
     }
 }
