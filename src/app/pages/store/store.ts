@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, ChangeDetectorRef, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { OpsService } from '../../core/ops.service';
 import { PackagesService } from '../../core/packages.service';
@@ -116,6 +116,7 @@ export class StorePage {
   packages = inject(PackagesService);
   ops = inject(OpsService);
   router = inject(Router);
+  private cdr = inject(ChangeDetectorRef);
 
   protected readonly managerLabel = managerLabel;
 
@@ -174,6 +175,8 @@ export class StorePage {
     if (!query || this.loading()) return;
     this.loading.set(true);
     this.visible.set(20);
+    // Pinta el panel al instante, antes de que empiece el trabajo asíncrono.
+    this.cdr.detectChanges();
     const t0 = Date.now();
     try {
       const res = await this.packages.search(query);
@@ -182,7 +185,7 @@ export class StorePage {
       this.searched.set(true);
     } finally {
       // Tiempo mínimo visible para que la animación se aprecie (búsquedas ~1 s).
-      const wait = Math.max(0, 1500 - (Date.now() - t0));
+      const wait = Math.max(0, 2500 - (Date.now() - t0));
       setTimeout(() => this.loading.set(false), wait);
     }
   }
