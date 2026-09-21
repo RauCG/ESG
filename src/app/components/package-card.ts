@@ -1,14 +1,15 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { Pkg } from '../types';
-import { CATEGORY_LABEL, SECTION_LABEL, categoryColor, classifySection, formatBytes, managerLabel, sectionColor } from '../format';
+import { CATEGORY_LABEL, ORIGIN_LABEL, SECTION_LABEL, categoryColor, classifySection, formatBytes, managerLabel, originColor, sectionColor } from '../format';
 
 @Component({
   selector: 'app-package-card',
   standalone: true,
+  styles: [':host { display: block; height: 100%; }'],
   template: `
     <div
       (click)="openDetails()"
-      class="group flex cursor-pointer flex-col gap-3 rounded-2xl border border-border bg-surface p-4 transition hover:border-accent/40 hover:bg-surface2"
+      class="group flex h-full cursor-pointer flex-col gap-3 rounded-2xl border border-border bg-surface p-4 transition hover:border-accent/40 hover:bg-surface2"
     >
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
@@ -35,6 +36,11 @@ import { CATEGORY_LABEL, SECTION_LABEL, categoryColor, classifySection, formatBy
           {{ pkg.category === 'terminal' ? SECTION_LABEL[classifySection(pkg)] : CATEGORY_LABEL[pkg.category] }}
         </span>
         <span class="rounded-md bg-surface2 px-1.5 py-0.5 text-muted">{{ managerLabel(pkg.manager) }}</span>
+        @if (pkg.origin) {
+          <span class="rounded-md border px-1.5 py-0.5 {{ originColor(pkg.origin) }}">
+            {{ ORIGIN_LABEL[pkg.origin] }}
+          </span>
+        }
         @if (pkg.explicit) {
           <span class="rounded-md bg-surface2 px-1.5 py-0.5 text-muted">explicito</span>
         }
@@ -103,8 +109,10 @@ export class PackageCard {
   @Output() details = new EventEmitter<Pkg>();
 
   protected readonly CATEGORY_LABEL = CATEGORY_LABEL;
+  protected readonly ORIGIN_LABEL = ORIGIN_LABEL;
   protected readonly SECTION_LABEL = SECTION_LABEL;
   protected readonly categoryColor = categoryColor;
+  protected readonly originColor = originColor;
   protected readonly sectionColor = sectionColor;
   protected readonly classifySection = classifySection;
   protected readonly managerLabel = managerLabel;

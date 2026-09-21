@@ -49,12 +49,15 @@ pub fn verify_password(password: &str) -> Result<(), String> {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(if stderr.contains("incorrect password")
-            || stderr.contains("Try again")
-            || stderr.contains("contraseña incorrecta") {
-            "Contraseña incorrecta".into()
-        } else {
-            format!("sudo rechazó la contraseña: {}", stderr.trim())
-        })
+        Err(
+            if stderr.contains("incorrect password")
+                || stderr.contains("Try again")
+                || stderr.contains("contraseña incorrecta")
+            {
+                "Contraseña incorrecta".into()
+            } else {
+                format!("sudo rechazó la contraseña: {}", stderr.trim())
+            },
+        )
     }
 }

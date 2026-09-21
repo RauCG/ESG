@@ -5,8 +5,8 @@ import { SettingsService } from '../../core/settings.service';
 import { OpsService } from '../../core/ops.service';
 import { TerminalService } from '../../core/terminal.service';
 import { PackageCard } from '../../components/package-card';
-import { Category, Pkg, Section } from '../../types';
-import { CATEGORY_LABEL, CATEGORY_ORDER, SECTION_ICON, SECTION_LABEL, SECTION_ORDER, classifySection, sectionColor } from '../../format';
+import { Category, Origin, Pkg, Section } from '../../types';
+import { CATEGORY_LABEL, CATEGORY_ORDER, ORIGIN_LABEL, ORIGIN_ORDER, SECTION_ICON, SECTION_LABEL, SECTION_ORDER, classifySection, sectionColor } from '../../format';
 
 @Component({
   selector: 'app-programs',
@@ -87,13 +87,56 @@ import { CATEGORY_LABEL, CATEGORY_ORDER, SECTION_ICON, SECTION_LABEL, SECTION_OR
           }
         </button>
       }
-      <div class="ml-auto w-64">
-        <input
-          type="search"
-          (input)="query.set($any($event.target).value)"
-          placeholder="Buscar por nombre o descripción…"
-          class="w-full rounded-xl border border-border bg-surface2 px-4 py-2 text-sm text-white outline-none transition focus:border-accent"
-        />
+      <div class="ml-auto flex items-center gap-2">
+        @if (tab() === 'terminal') {
+          <div class="relative w-48">
+            @if (originOpen()) {
+              <div class="fixed inset-0 z-10" (click)="originOpen.set(false)"></div>
+            }
+            <button
+              (click)="originOpen.set(!originOpen())"
+              type="button"
+              class="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-slate-200 outline-none transition hover:border-accent/50 focus:border-accent"
+            >
+              <span class="truncate">{{ originLabel() }}</span>
+              <svg class="h-4 w-4 shrink-0 text-muted transition" [class.rotate-180]="originOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+            @if (originOpen()) {
+              <div class="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-border bg-surface2 shadow-2xl">
+                <button
+                  (click)="setOrigin('todas')"
+                  type="button"
+                  class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
+                >
+                  <span>Todos</span>
+                  @if (originFilter() === 'todas') {
+                    <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
+                  }
+                </button>
+                @for (o of ORIGIN_ORDER; track o) {
+                  <button
+                    (click)="setOrigin(o)"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-surface"
+                  >
+                    <span>{{ ORIGIN_LABEL[o] }}</span>
+                    @if (originFilter() === o) {
+                      <svg class="h-4 w-4 shrink-0 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" /></svg>
+                    }
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
+        <div class="w-64">
+          <input
+            type="search"
+            (input)="query.set($any($event.target).value)"
+            placeholder="Buscar por nombre o descripción…"
+            class="w-full rounded-xl border border-border bg-surface2 px-4 py-2 text-sm text-white outline-none transition focus:border-accent"
+          />
+        </div>
       </div>
     </div>
 
@@ -196,6 +239,8 @@ export class ProgramsPage {
 
   protected readonly CATEGORY_ORDER = CATEGORY_ORDER;
   protected readonly CATEGORY_LABEL = CATEGORY_LABEL;
+  protected readonly ORIGIN_ORDER = ORIGIN_ORDER;
+  protected readonly ORIGIN_LABEL = ORIGIN_LABEL;
   protected readonly SECTION_ORDER = SECTION_ORDER;
   protected readonly SECTION_LABEL = SECTION_LABEL;
   protected readonly SECTION_ICON = SECTION_ICON;
@@ -203,6 +248,8 @@ export class ProgramsPage {
 
   tab = signal<Category>('all');
   sub = signal<Section | null>(null);
+  originFilter = signal<Origin | 'todas'>('todas');
+  originOpen = signal(false);
   query = signal('');
   showDeps = signal(true);
   updating = signal(false);
@@ -216,7 +263,18 @@ export class ProgramsPage {
 
   setTab(c: Category) {
     this.sub.set(null);
+    this.originFilter.set('todas');
     this.tab.set(c);
+  }
+
+  setOrigin(o: Origin | 'todas') {
+    this.originFilter.set(o);
+    this.originOpen.set(false);
+  }
+
+  originLabel() {
+    const o = this.originFilter();
+    return o === 'todas' ? 'Origen: todos' : ORIGIN_LABEL[o];
   }
 
   allCount() {
@@ -234,7 +292,8 @@ export class ProgramsPage {
   }
 
   countOfSection(s: Section) {
-    return this.packages.packages().filter((p) => p.category === 'terminal' && classifySection(p) === s).length;
+    const o = this.originFilter();
+    return this.packages.packages().filter((p) => p.category === 'terminal' && classifySection(p) === s && (o === 'todas' || p.origin === o)).length;
   }
 
   pending(): Pkg[] {
@@ -249,9 +308,11 @@ export class ProgramsPage {
     const q = this.query().trim().toLowerCase();
     const t = this.tab();
     const s = this.sub();
+    const o = this.originFilter();
     return this.packages.packages().filter((p) => {
       if (t !== 'all' && p.category !== t) return false;
       if (t === 'terminal' && s !== null && classifySection(p) !== s) return false;
+      if (t === 'terminal' && o !== 'todas' && p.origin !== o) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     });

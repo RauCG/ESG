@@ -89,24 +89,31 @@ fn verify_sudo(password: String) -> Result<(), String> {
 #[tauri::command]
 fn pty_create(state: State<PtsState>, label: String, exec: Option<String>) -> Result<u32, String> {
     let exec = exec.map(|e| format!("{e}; exec {}", util::shell()));
-    spawn_shell(&state, SpawnSpec {
-        label,
-        kind: "term".into(),
-        cwd: None,
-        exec,
-        interactive: true,
-    })
+    spawn_shell(
+        &state,
+        SpawnSpec {
+            label,
+            kind: "term".into(),
+            cwd: None,
+            exec,
+            interactive: true,
+        },
+    )
 }
 
 #[tauri::command]
 fn pty_attach(id: u32, on_event: Channel<PtsEvent>, state: State<PtsState>) -> Result<(), String> {
-    let s = state.session(id).ok_or("Sesión de terminal no encontrada")?;
+    let s = state
+        .session(id)
+        .ok_or("Sesión de terminal no encontrada")?;
     s.attach(on_event)
 }
 
 #[tauri::command]
 fn pty_write(id: u32, data: Vec<u8>, state: State<PtsState>) -> Result<(), String> {
-    let s = state.session(id).ok_or("Sesión de terminal no encontrada")?;
+    let s = state
+        .session(id)
+        .ok_or("Sesión de terminal no encontrada")?;
     s.write(&data)
 }
 
@@ -137,7 +144,9 @@ fn op_start(
     on_event: Channel<PtsEvent>,
 ) -> Result<u32, String> {
     let id = ops::start_op(&app, &state, request)?;
-    let s = state.session(id).ok_or("Sesión de operación no encontrada")?;
+    let s = state
+        .session(id)
+        .ok_or("Sesión de operación no encontrada")?;
     s.attach(on_event)?;
     Ok(id)
 }

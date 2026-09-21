@@ -40,11 +40,14 @@ export interface Pkg {
   category: Category;
   size: number;
   explicit: boolean;
+  origin: Origin | '';
   desktopFiles: string[];
   update: UpdateInfo | null;
 }
 
 export type Category = 'gui' | 'terminal' | 'aur' | 'flatpak' | 'snap' | 'all';
+
+export type Origin = 'sistema' | 'dependencia' | 'extra';
 
 export type Section =
   | 'sistema'
@@ -75,6 +78,7 @@ export interface SearchResult {
   votes: number;
   popularity: number;
   source: 'instalado' | 'repos' | 'aur' | 'flatpak' | 'snap';
+  origin: Origin | '';
 }
 
 export interface PkgDetails {
@@ -108,6 +112,7 @@ export interface PkgDetails {
   installed: boolean;
   explicit: boolean;
   category: Category;
+  origin: Origin | '';
   desktopFiles: string[];
   update: UpdateInfo | null;
 }

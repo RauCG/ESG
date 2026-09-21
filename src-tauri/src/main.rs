@@ -9,7 +9,9 @@
 /// Nunca se pisa lo que el usuario haya fijado explícitamente.
 fn tune_graphics_env() {
     let wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
-        || std::env::var("XDG_SESSION_TYPE").map(|v| v == "wayland").unwrap_or(false);
+        || std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v == "wayland")
+            .unwrap_or(false);
     if !wayland {
         return;
     }

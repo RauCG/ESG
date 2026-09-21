@@ -37,7 +37,11 @@ pub fn detect_defaults() -> Settings {
         m.detected = command_exists(&m.id);
     }
     apply_family_defaults(&family, &mut managers);
-    Settings { family, managers, show_dependencies: false }
+    Settings {
+        family,
+        managers,
+        show_dependencies: false,
+    }
 }
 
 pub fn apply_family_defaults(family: &str, managers: &mut [ManagerInfo]) {

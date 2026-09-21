@@ -4,7 +4,7 @@ import { PackagesService } from '../../core/packages.service';
 import { OpsService } from '../../core/ops.service';
 import { TerminalService } from '../../core/terminal.service';
 import { Pkg, PkgDetails } from '../../types';
-import { categoryColor, CATEGORY_LABEL, SECTION_LABEL, classifySection, formatBytes, managerLabel, sectionColor } from '../../format';
+import { categoryColor, CATEGORY_LABEL, ORIGIN_LABEL, SECTION_LABEL, classifySection, formatBytes, managerLabel, sectionColor } from '../../format';
 
 @Component({
   selector: 'app-package-detail',
@@ -261,6 +261,7 @@ export class PackageDetailPage {
       { k: 'Fecha de instalación', v: d.installDate || '—' },
       { k: 'Motivo de instalación', v: d.installReason || '—' },
       { k: 'Instalación explícita', v: d.installed ? (d.explicit ? 'Sí' : 'No') : '—' },
+      { k: 'Origen', v: d.origin ? ORIGIN_LABEL[d.origin] : '—' },
     ];
     if (d.maintainer) rows.push({ k: 'Mantenedor (AUR)', v: d.maintainer });
     if (d.submitted) rows.push({ k: 'Enviado (AUR)', v: d.submitted });
@@ -296,6 +297,7 @@ export class PackageDetailPage {
       category: d.category,
       size: d.installedSize,
       explicit: d.explicit,
+      origin: d.origin,
       desktopFiles: d.desktopFiles,
       update: d.update,
     };

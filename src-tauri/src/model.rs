@@ -78,6 +78,9 @@ pub struct Pkg {
     pub category: String,
     pub size: i64,
     pub explicit: bool,
+    /// Origen en Arch: "sistema" (grupo base), "dependencia" o "extra".
+    /// Vacío cuando no se conoce (otros gestores).
+    pub origin: String,
     pub desktop_files: Vec<String>,
     pub update: Option<UpdateInfo>,
 }
@@ -109,6 +112,8 @@ pub struct SearchResult {
     pub votes: i64,
     pub popularity: f64,
     pub source: String,
+    /// Igual que en Pkg; vacío para resultados remotos.
+    pub origin: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +149,8 @@ pub struct PkgDetails {
     pub installed: bool,
     pub explicit: bool,
     pub category: String,
+    /// Igual que en Pkg; vacío cuando no se conoce.
+    pub origin: String,
     pub desktop_files: Vec<String>,
     pub update: Option<UpdateInfo>,
 }
@@ -159,8 +166,16 @@ pub struct CacheInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PtsEvent {
-    Data { id: u32, data: Vec<u8> },
-    Exit { id: u32, success: bool, code: Option<i32>, signal: Option<String> },
+    Data {
+        id: u32,
+        data: Vec<u8>,
+    },
+    Exit {
+        id: u32,
+        success: bool,
+        code: Option<i32>,
+        signal: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]

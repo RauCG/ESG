@@ -1,5 +1,5 @@
 use crate::model::OpRequest;
-use crate::pty::{spawn_shell, SpawnSpec, PtsState};
+use crate::pty::{spawn_shell, PtsState, SpawnSpec};
 use crate::util::command_exists;
 
 pub fn shell_quote(s: &str) -> String {
@@ -7,7 +7,11 @@ pub fn shell_quote(s: &str) -> String {
 }
 
 pub fn quote_all(names: &[String]) -> String {
-    names.iter().map(|n| shell_quote(n)).collect::<Vec<_>>().join(" ")
+    names
+        .iter()
+        .map(|n| shell_quote(n))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn script_for(req: &OpRequest) -> Result<String, String> {
@@ -68,9 +72,18 @@ pub fn script_for(req: &OpRequest) -> Result<String, String> {
 pub fn label_for(req: &OpRequest) -> String {
     match (req.kind.as_str(), req.manager.as_str()) {
         ("update", m) => format!("Actualizar ({m})"),
-        ("upgrade", _) => format!("Actualizar {}", req.packages.as_deref().unwrap_or(&[]).join(", ")),
-        ("install", _) => format!("Instalar {}", req.packages.as_deref().unwrap_or(&[]).join(", ")),
-        ("uninstall", _) => format!("Desinstalar {}", req.packages.as_deref().unwrap_or(&[]).join(", ")),
+        ("upgrade", _) => format!(
+            "Actualizar {}",
+            req.packages.as_deref().unwrap_or(&[]).join(", ")
+        ),
+        ("install", _) => format!(
+            "Instalar {}",
+            req.packages.as_deref().unwrap_or(&[]).join(", ")
+        ),
+        ("uninstall", _) => format!(
+            "Desinstalar {}",
+            req.packages.as_deref().unwrap_or(&[]).join(", ")
+        ),
         ("orphans", _) => "Limpiar paquetes huérfanos".into(),
         ("cache", m) => format!("Limpiar caché ({m})"),
         _ => "Operación".into(),
@@ -83,14 +96,20 @@ pub fn start_op(_app: &tauri::AppHandle, state: &PtsState, req: OpRequest) -> Re
     // Capturar el código real de la operación: `echo` pisa `$?`, así que se
     // guarda en `code` antes y se sale con ese código para que el evento
     // `exit` del PTY refleje el resultado verdadero (antes siempre era 0).
-    let script = format!("echo '» {}'; {}\ncode=$?; echo;\necho \"Proceso finalizado (código $code).\"; exit $code", label, script);
-    spawn_shell(state, SpawnSpec {
-        label,
-        kind: "op".into(),
-        cwd: None,
-        exec: Some(script),
-        interactive: false,
-    })
+    let script = format!(
+        "echo '» {}'; {}\ncode=$?; echo;\necho \"Proceso finalizado (código $code).\"; exit $code",
+        label, script
+    );
+    spawn_shell(
+        state,
+        SpawnSpec {
+            label,
+            kind: "op".into(),
+            cwd: None,
+            exec: Some(script),
+            interactive: false,
+        },
+    )
 }
 
 pub fn launch_desktop(name: &str) -> Result<(), String> {
@@ -108,16 +127,23 @@ pub fn launch_desktop(name: &str) -> Result<(), String> {
         }
     }
     let launch = if command_exists("gtk-launch") {
-        std::process::Command::new("gtk-launch").arg(base).spawn().is_ok()
+        std::process::Command::new("gtk-launch")
+            .arg(base)
+            .spawn()
+            .is_ok()
     } else {
         false
     };
     if !launch {
         if let Some(p) = path {
-            std::process::Command::new("gio").args(["launch", p.to_str().unwrap_or("")]).spawn()
+            std::process::Command::new("gio")
+                .args(["launch", p.to_str().unwrap_or("")])
+                .spawn()
                 .map_err(|e| format!("No se pudo lanzar la app: {e}"))?;
         } else if command_exists("xdg-open") {
-            std::process::Command::new("xdg-open").arg(base).spawn()
+            std::process::Command::new("xdg-open")
+                .arg(base)
+                .spawn()
                 .map_err(|e| format!("No se pudo lanzar la app: {e}"))?;
         } else {
             return Err("No se encontraron herramientas para lanzar la aplicación".into());

@@ -40,7 +40,11 @@ fn nat_manager_id(app: &tauri::AppHandle) -> &'static str {
 
 pub fn list_packages(app: &tauri::AppHandle, show_deps: bool) -> ListResult {
     let fam = settings::load(app).family.clone();
-    let mut result = ListResult { packages: vec![], errors: vec![], managers_used: vec![] };
+    let mut result = ListResult {
+        packages: vec![],
+        errors: vec![],
+        managers_used: vec![],
+    };
     let dialer = nat_manager_id(app);
 
     match fam.as_str() {
@@ -71,7 +75,9 @@ pub fn list_packages(app: &tauri::AppHandle, show_deps: bool) -> ListResult {
                 }
             }
         }
-        _ => result.errors.push(format!("Familia de gestores '{fam}' no soportada todavía.")),
+        _ => result
+            .errors
+            .push(format!("Familia de gestores '{fam}' no soportada todavía.")),
     }
 
     if enabled(app, "flatpak") && command_exists("flatpak") {
@@ -92,14 +98,88 @@ pub fn list_packages(app: &tauri::AppHandle, show_deps: bool) -> ListResult {
     result
 }
 
-fn arch_info_map() -> HashMap<String, (String, i64)> {
+#[derive(Debug, Clone, Default)]
+struct ArchInfo {
+    desc: String,
+    size: i64,
+    groups: Vec<String>,
+    depends: Vec<String>,
+}
+
+/// Cierre de dependencias del sistema base: `base` + núcleos instalados y
+/// todo lo que necesitan (recursivo). Son los paquetes "necesarios para el SO".
+fn system_closure(info: &HashMap<String, ArchInfo>) -> HashSet<String> {
+    let mut roots: Vec<String> = Vec::new();
+    if info.contains_key("base") {
+        roots.push("base".to_string());
+    }
+    for name in info.keys() {
+        if name == "linux" || name.starts_with("linux-") || name.starts_with("linux_") {
+            roots.push(name.clone());
+        }
+    }
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut stack = roots;
+    while let Some(n) = stack.pop() {
+        if !seen.insert(n.clone()) {
+            continue;
+        }
+        if let Some(ai) = info.get(&n) {
+            for d in &ai.depends {
+                if info.contains_key(d) {
+                    stack.push(d.clone());
+                }
+            }
+        }
+    }
+    seen
+}
+
+/// Origen de un paquete Arch: "sistema" (grupo base o dentro del cierre del
+/// sistema), "extra" (extranjero/AUR o explícito de usuario) o "dependencia".
+fn arch_origin(is_foreign: bool, is_explicit: bool, groups: &[String], in_system: bool) -> &'static str {
+    if is_foreign {
+        "extra"
+    } else if in_system || groups.iter().any(|g| g == "base" || g == "base-devel") {
+        "sistema"
+    } else if is_explicit {
+        "extra"
+    } else {
+        "dependencia"
+    }
+}
+
+/// Normaliza una entrada de "Depends On": quita restricciones (`glibc>=2.33`).
+fn dep_name(token: &str) -> Option<String> {
+    let n = token.split(['=', '<', '>']).next().unwrap_or("").trim();
+    if n.is_empty() || n.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        Some(n.to_string())
+    }
+}
+
+fn arch_info_map() -> HashMap<String, ArchInfo> {
     let info_raw = run_capture("pacman", &["-Qi"]).stdout;
-    let mut info: HashMap<String, (String, i64)> = HashMap::new();
+    let mut info: HashMap<String, ArchInfo> = HashMap::new();
     for block in info_raw.split("\n\n") {
         if let Some(name) = field_value(block, "Name") {
             let desc = field_value(block, "Description").unwrap_or_default();
-            let size = field_value(block, "Installed Size").map(|s| parse_installed_size(&s)).unwrap_or(0);
-            info.insert(name, (desc, size));
+            let size = field_value(block, "Installed Size")
+                .map(|s| parse_installed_size(&s))
+                .unwrap_or(0);
+            let groups = field_value(block, "Groups")
+                .map(|g| {
+                    g.split_whitespace()
+                        .filter(|w| !w.eq_ignore_ascii_case("none"))
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let depends = field_block(block, "Depends On")
+                .map(|d| d.split_whitespace().filter_map(dep_name).collect())
+                .unwrap_or_default();
+            info.insert(name, ArchInfo { desc, size, groups, depends });
         }
     }
     info
@@ -107,13 +187,22 @@ fn arch_info_map() -> HashMap<String, (String, i64)> {
 
 fn list_arch(app: &tauri::AppHandle, show_deps: bool) -> Result<Vec<Pkg>, String> {
     let all = run_capture("pacman", &["-Q"]).stdout;
-    let explicit: HashSet<String> = run_capture("pacman", &["-Qe", "-q"]).stdout.lines().map(str::to_string).collect();
-    let foreign: HashSet<String> = run_capture("pacman", &["-Qm", "-q"]).stdout.lines().map(str::to_string).collect();
+    let explicit: HashSet<String> = run_capture("pacman", &["-Qe", "-q"])
+        .stdout
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let foreign: HashSet<String> = run_capture("pacman", &["-Qm", "-q"])
+        .stdout
+        .lines()
+        .map(str::to_string)
+        .collect();
 
     let info = arch_info_map();
 
     let gui = desktop_owners_arch();
     let helper = helper_id(app);
+    let sys = system_closure(&info);
 
     let mut out = Vec::new();
     for line in all.lines() {
@@ -124,7 +213,7 @@ fn list_arch(app: &tauri::AppHandle, show_deps: bool) -> Result<Vec<Pkg>, String
             continue;
         }
         let version = parts.next().unwrap_or("").trim().to_string();
-        let (desc, size) = info.get(name).cloned().unwrap_or_default();
+        let ai = info.get(name).cloned().unwrap_or_default();
         let is_foreign = foreign.contains(name);
         let is_gui = gui.contains_key(name);
         let is_explicit = explicit.contains(name);
@@ -138,16 +227,21 @@ fn list_arch(app: &tauri::AppHandle, show_deps: bool) -> Result<Vec<Pkg>, String
         } else {
             "terminal".into()
         };
-        let manager = if category == "aur" { helper.clone().unwrap_or_else(|| "pacman".into()) } else { "pacman".into() };
+        let manager = if category == "aur" {
+            helper.clone().unwrap_or_else(|| "pacman".into())
+        } else {
+            "pacman".into()
+        };
         let desktop = gui.get(name).cloned().unwrap_or_default();
         out.push(Pkg {
             name: name.to_string(),
             version,
-            description: desc,
+            description: ai.desc,
             manager,
             category,
-            size,
+            size: ai.size,
             explicit: is_explicit || is_foreign,
+            origin: arch_origin(is_foreign, is_explicit, &ai.groups, sys.contains(name)).into(),
             desktop_files: desktop,
             update: None,
         });
@@ -160,7 +254,11 @@ fn list_deb(show_deps: bool) -> Result<Vec<Pkg>, String> {
         "dpkg-query",
         &["-W", "-f=${db:Status-Abbrev}\\t${binary:Package}\\t${Version}\\t${Installed-Size}\\t${binary:Synopsis}\\n"],
     );
-    let manual: HashSet<String> = run_capture("apt-mark", &["showmanual"]).stdout.lines().map(str::to_string).collect();
+    let manual: HashSet<String> = run_capture("apt-mark", &["showmanual"])
+        .stdout
+        .lines()
+        .map(str::to_string)
+        .collect();
     let gui = desktop_owners_deb();
 
     let mut out = Vec::new();
@@ -186,18 +284,30 @@ fn list_deb(show_deps: bool) -> Result<Vec<Pkg>, String> {
             version: version.into(),
             description: desc,
             manager: "apt".into(),
-            category: if is_gui { "gui".into() } else { "terminal".into() },
+            category: if is_gui {
+                "gui".into()
+            } else {
+                "terminal".into()
+            },
             size: (size_kb * 1024.0) as i64,
             explicit: is_explicit,
             desktop_files: gui.get(name).cloned().unwrap_or_default(),
             update: None,
+
+            origin: String::new(),
         });
     }
     Ok(out)
 }
 
 fn list_rpm(show_deps: bool, dialer: &str) -> Result<Vec<Pkg>, String> {
-    let all = run_capture("rpm", &["-qa", "--queryformat=%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{SUMMARY}\\n"]);
+    let all = run_capture(
+        "rpm",
+        &[
+            "-qa",
+            "--queryformat=%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{SUMMARY}\\n",
+        ],
+    );
     let mut manual: HashSet<String> = HashSet::new();
     let u = run_capture("rpm", &["-qa", "--userinstalled"]);
     if u.code == Some(0) {
@@ -227,11 +337,17 @@ fn list_rpm(show_deps: bool, dialer: &str) -> Result<Vec<Pkg>, String> {
             version,
             description: desc,
             manager: dialer.into(),
-            category: if is_gui { "gui".into() } else { "terminal".into() },
+            category: if is_gui {
+                "gui".into()
+            } else {
+                "terminal".into()
+            },
             size,
             explicit: is_explicit,
             desktop_files: desktop,
             update: None,
+
+            origin: String::new(),
         });
     }
     Ok(out)
@@ -240,7 +356,11 @@ fn list_rpm(show_deps: bool, dialer: &str) -> Result<Vec<Pkg>, String> {
 fn list_flatpak() -> Result<Vec<Pkg>, String> {
     let o = run_capture(
         "flatpak",
-        &["list", "--app", "--columns=application,name,version,origin,ref"],
+        &[
+            "list",
+            "--app",
+            "--columns=application,name,version,origin,ref",
+        ],
     );
     if o.code == Some(1) && o.stdout.is_empty() && o.stderr.contains("No usable remotes") {
         return Ok(Vec::new());
@@ -258,16 +378,19 @@ fn list_flatpak() -> Result<Vec<Pkg>, String> {
         out.push(Pkg {
             name: app.into(),
             version: version.into(),
-            description: if name.is_empty() { app.into() } else { name.into() },
+            description: if name.is_empty() {
+                app.into()
+            } else {
+                name.into()
+            },
             manager: "flatpak".into(),
             category: "flatpak".into(),
             size: 0,
             explicit: true,
+            origin: String::new(),
             desktop_files: vec![],
             update: None,
-            // keep origin visible via nothing; origin is repo
         });
-        let _ = origin;
     }
     Ok(out)
 }
@@ -292,6 +415,8 @@ fn list_snap() -> Result<Vec<Pkg>, String> {
             explicit: true,
             desktop_files: vec![],
             update: None,
+
+            origin: String::new(),
         });
     }
     Ok(out)
@@ -302,7 +427,11 @@ fn desktop_owners_arch() -> StrMap {
     let mut map: StrMap = HashMap::new();
     for chunk in files.chunks(250) {
         let args: Vec<String> = std::iter::once("Qo".into())
-            .chain(chunk.iter().filter_map(|p| p.to_str().map(|s| s.to_string())))
+            .chain(
+                chunk
+                    .iter()
+                    .filter_map(|p| p.to_str().map(|s| s.to_string())),
+            )
             .collect();
         if args.len() <= 1 {
             continue;
@@ -330,7 +459,11 @@ fn desktop_owners_deb() -> StrMap {
     let mut map: StrMap = HashMap::new();
     for chunk in files.chunks(120) {
         let args: Vec<String> = std::iter::once("S".into())
-            .chain(chunk.iter().filter_map(|p| p.to_str().map(|s| s.to_string())))
+            .chain(
+                chunk
+                    .iter()
+                    .filter_map(|p| p.to_str().map(|s| s.to_string())),
+            )
             .collect();
         if args.len() <= 1 {
             continue;
@@ -340,7 +473,9 @@ fn desktop_owners_deb() -> StrMap {
             if let Some((pkg, path)) = line.split_once(':') {
                 let pkg = pkg.trim().to_string();
                 if let Some(base) = Path::new(path.trim()).file_name().and_then(|s| s.to_str()) {
-                    map.entry(pkg).or_default().push(base.strip_suffix(".desktop").unwrap_or(base).to_string());
+                    map.entry(pkg)
+                        .or_default()
+                        .push(base.strip_suffix(".desktop").unwrap_or(base).to_string());
                 }
             }
         }
@@ -397,7 +532,11 @@ pub fn list_updates(app: &tauri::AppHandle, manager: &str) -> Result<Vec<Pkg>, S
 
 fn arch_updates(_app: &tauri::AppHandle, use_helper: bool) -> Result<Vec<Pkg>, String> {
     let out = if use_helper {
-        let h = if command_exists("paru") { "paru" } else { "yay" };
+        let h = if command_exists("paru") {
+            "paru"
+        } else {
+            "yay"
+        };
         run_capture(h, &["-Qu"]).stdout
     } else if command_exists("checkupdates") {
         run_capture("checkupdates", &[]).stdout
@@ -410,10 +549,15 @@ fn arch_updates(_app: &tauri::AppHandle, use_helper: bool) -> Result<Vec<Pkg>, S
             return Ok(Vec::new());
         }
     };
-    let re = Regex::new(r"(?m)^(?P<repo>[\w+.-]+/)?(?P<name>[\w+.-]+?)\s+(?P<cur>\S+)\s*->\s*(?P<new>\S+)").unwrap();
+    let re = Regex::new(
+        r"(?m)^(?P<repo>[\w+.-]+/)?(?P<name>[\w+.-]+?)\s+(?P<cur>\S+)\s*->\s*(?P<new>\S+)",
+    )
+    .unwrap();
     let mut v = Vec::new();
     for caps in re.captures_iter(&out) {
-        let repo = caps.name("repo").map(|m| m.as_str().trim_end_matches('/').to_string())
+        let repo = caps
+            .name("repo")
+            .map(|m| m.as_str().trim_end_matches('/').to_string())
             .unwrap_or_else(|| "".into());
         v.push(Pkg {
             name: caps["name"].to_string(),
@@ -424,7 +568,12 @@ fn arch_updates(_app: &tauri::AppHandle, use_helper: bool) -> Result<Vec<Pkg>, S
             size: 0,
             explicit: true,
             desktop_files: vec![],
-            update: Some(crate::model::UpdateInfo { new_version: caps["new"].to_string(), repo }),
+            update: Some(crate::model::UpdateInfo {
+                new_version: caps["new"].to_string(),
+                repo,
+            }),
+
+            origin: String::new(),
         });
     }
     Ok(v)
@@ -448,7 +597,12 @@ fn deb_updates() -> Result<Vec<Pkg>, String> {
                 size: 0,
                 explicit: true,
                 desktop_files: vec![],
-                update: Some(crate::model::UpdateInfo { new_version: caps[3].to_string(), repo: caps[2].to_string() }),
+                update: Some(crate::model::UpdateInfo {
+                    new_version: caps[3].to_string(),
+                    repo: caps[2].to_string(),
+                }),
+
+                origin: String::new(),
             });
         }
     }
@@ -475,7 +629,12 @@ fn dnf_updates() -> Result<Vec<Pkg>, String> {
             size: 0,
             explicit: true,
             desktop_files: vec![],
-            update: Some(crate::model::UpdateInfo { new_version: ver.into(), repo: repo.into() }),
+            update: Some(crate::model::UpdateInfo {
+                new_version: ver.into(),
+                repo: repo.into(),
+            }),
+
+            origin: String::new(),
         });
     }
     Ok(v)
@@ -496,7 +655,12 @@ fn zypper_updates() -> Result<Vec<Pkg>, String> {
                 size: 0,
                 explicit: true,
                 desktop_files: vec![],
-                update: Some(crate::model::UpdateInfo { new_version: String::new(), repo: t[2].into() }),
+                update: Some(crate::model::UpdateInfo {
+                    new_version: String::new(),
+                    repo: t[2].into(),
+                }),
+
+                origin: String::new(),
             });
         }
     }
@@ -504,7 +668,14 @@ fn zypper_updates() -> Result<Vec<Pkg>, String> {
 }
 
 fn flatpak_updates() -> Result<Vec<Pkg>, String> {
-    let o = run_capture("flatpak", &["remote-ls", "--updates", "--columns=application,name,version,ref"]);
+    let o = run_capture(
+        "flatpak",
+        &[
+            "remote-ls",
+            "--updates",
+            "--columns=application,name,version,ref",
+        ],
+    );
     let mut v = Vec::new();
     for line in o.stdout.lines() {
         let mut p = line.split('\t').map(str::trim);
@@ -517,13 +688,22 @@ fn flatpak_updates() -> Result<Vec<Pkg>, String> {
         v.push(Pkg {
             name: app.into(),
             version: String::new(),
-            description: if name.is_empty() { app.into() } else { name.into() },
+            description: if name.is_empty() {
+                app.into()
+            } else {
+                name.into()
+            },
             manager: "flatpak".into(),
             category: "flatpak".into(),
             size: 0,
             explicit: true,
             desktop_files: vec![],
-            update: Some(crate::model::UpdateInfo { new_version: ver.into(), repo: String::new() }),
+            update: Some(crate::model::UpdateInfo {
+                new_version: ver.into(),
+                repo: String::new(),
+            }),
+
+            origin: String::new(),
         });
     }
     Ok(v)
@@ -546,7 +726,12 @@ fn snap_updates() -> Result<Vec<Pkg>, String> {
             size: 0,
             explicit: true,
             desktop_files: vec![],
-            update: Some(crate::model::UpdateInfo { new_version: t[1].into(), repo: String::new() }),
+            update: Some(crate::model::UpdateInfo {
+                new_version: t[1].into(),
+                repo: String::new(),
+            }),
+
+            origin: String::new(),
         });
     }
     Ok(v)
@@ -607,11 +792,25 @@ pub fn search_packages(app: &tauri::AppHandle, query: &str) -> Vec<SearchResult>
     finalize_results(out, query)
 }
 
-fn search_installed_arch(app: &tauri::AppHandle, query: &str, out: &mut Vec<SearchResult>) -> HashSet<String> {
+fn search_installed_arch(
+    app: &tauri::AppHandle,
+    query: &str,
+    out: &mut Vec<SearchResult>,
+) -> HashSet<String> {
     let all = run_capture("pacman", &["-Q"]).stdout;
     let info = arch_info_map();
-    let foreign: HashSet<String> = run_capture("pacman", &["-Qm", "-q"]).stdout.lines().map(str::to_string).collect();
+    let foreign: HashSet<String> = run_capture("pacman", &["-Qm", "-q"])
+        .stdout
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let explicit: HashSet<String> = run_capture("pacman", &["-Qe", "-q"])
+        .stdout
+        .lines()
+        .map(str::to_string)
+        .collect();
     let helper = helper_id(app);
+    let sys = system_closure(&info);
     let q = query.to_lowercase();
     let mut names = HashSet::new();
     for line in all.lines() {
@@ -623,8 +822,8 @@ fn search_installed_arch(app: &tauri::AppHandle, query: &str, out: &mut Vec<Sear
         }
         names.insert(name.clone());
         let version = parts.next().unwrap_or("").trim().to_string();
-        let (desc, _size) = info.get(&name).cloned().unwrap_or_default();
-        if !name.to_lowercase().contains(&q) && !desc.to_lowercase().contains(&q) {
+        let ai = info.get(&name).cloned().unwrap_or_default();
+        if !name.to_lowercase().contains(&q) && !ai.desc.to_lowercase().contains(&q) {
             continue;
         }
         let is_foreign = foreign.contains(&name);
@@ -635,14 +834,19 @@ fn search_installed_arch(app: &tauri::AppHandle, query: &str, out: &mut Vec<Sear
         };
         out.push(SearchResult {
             manager,
-            name,
+            name: name.clone(),
             version,
-            description: desc,
+            description: ai.desc,
             repo: String::new(),
             installed: true,
             votes: 0,
             popularity: 0.0,
-            source: if is_foreign { "aur".into() } else { "instalado".into() },
+            source: if is_foreign {
+                "aur".into()
+            } else {
+                "instalado".into()
+            },
+            origin: arch_origin(is_foreign, explicit.contains(&name), &ai.groups, sys.contains(&name)).into(),
         });
     }
     names
@@ -651,7 +855,10 @@ fn search_installed_arch(app: &tauri::AppHandle, query: &str, out: &mut Vec<Sear
 fn search_installed_deb(query: &str, out: &mut Vec<SearchResult>) {
     let all = run_capture(
         "dpkg-query",
-        &["-W", "-f=${binary:Package}\t${Version}\t${binary:Synopsis}\n"],
+        &[
+            "-W",
+            "-f=${binary:Package}\t${Version}\t${binary:Synopsis}\n",
+        ],
     )
     .stdout;
     let q = query.to_lowercase();
@@ -677,12 +884,21 @@ fn search_installed_deb(query: &str, out: &mut Vec<SearchResult>) {
             votes: 0,
             popularity: 0.0,
             source: "instalado".into(),
+
+            origin: String::new(),
         });
     }
 }
 
 fn search_installed_rpm(query: &str, dialer: &str, out: &mut Vec<SearchResult>) {
-    let all = run_capture("rpm", &["-qa", "--queryformat=%{NAME}\t%{VERSION}-%{RELEASE}\t%{SUMMARY}\n"]).stdout;
+    let all = run_capture(
+        "rpm",
+        &[
+            "-qa",
+            "--queryformat=%{NAME}\t%{VERSION}-%{RELEASE}\t%{SUMMARY}\n",
+        ],
+    )
+    .stdout;
     let q = query.to_lowercase();
     for line in all.lines() {
         let mut p = line.split('\t');
@@ -707,16 +923,24 @@ fn search_installed_rpm(query: &str, dialer: &str, out: &mut Vec<SearchResult>) 
             votes: 0,
             popularity: 0.0,
             source: "instalado".into(),
+
+            origin: String::new(),
         });
     }
 }
 
 fn search_installed_flatpak(query: &str, out: &mut Vec<SearchResult>) {
-    let o = run_capture("flatpak", &["list", "--app", "--columns=application,name,version"]).stdout;
+    let o = run_capture(
+        "flatpak",
+        &["list", "--app", "--columns=application,name,version"],
+    )
+    .stdout;
     let q = query.to_lowercase();
     for line in o.lines() {
         let p: Vec<&str> = line.split('\t').collect();
-        let Some(name) = p.first().map(|s| s.trim().to_string()) else { continue };
+        let Some(name) = p.first().map(|s| s.trim().to_string()) else {
+            continue;
+        };
         if name.is_empty() {
             continue;
         }
@@ -724,7 +948,11 @@ fn search_installed_flatpak(query: &str, out: &mut Vec<SearchResult>) {
         if !name.to_lowercase().contains(&q) && !title.to_lowercase().contains(&q) {
             continue;
         }
-        let description = if title.is_empty() { name.clone() } else { title.clone() };
+        let description = if title.is_empty() {
+            name.clone()
+        } else {
+            title.clone()
+        };
         out.push(SearchResult {
             manager: "flatpak".into(),
             name: name.clone(),
@@ -735,6 +963,8 @@ fn search_installed_flatpak(query: &str, out: &mut Vec<SearchResult>) {
             votes: 0,
             popularity: 0.0,
             source: "flatpak".into(),
+
+            origin: String::new(),
         });
     }
 }
@@ -761,11 +991,18 @@ fn search_installed_snap(query: &str, out: &mut Vec<SearchResult>) {
             votes: 0,
             popularity: 0.0,
             source: "snap".into(),
+
+            origin: String::new(),
         });
     }
 }
 
-fn search_repos_arch(bin: &str, query: &str, installed: &HashSet<String>, out: &mut Vec<SearchResult>) {
+fn search_repos_arch(
+    bin: &str,
+    query: &str,
+    installed: &HashSet<String>,
+    out: &mut Vec<SearchResult>,
+) {
     let o = run_capture(bin, &["-Ss", query]);
     let header = Regex::new(
     // yay v13 añade un corchete de antigüedad tras los votos: `aur/nombre ver (+N pop) [307d16h]`.
@@ -779,8 +1016,14 @@ fn search_repos_arch(bin: &str, query: &str, installed: &HashSet<String>, out: &
             dedupe_push(out, pending.take());
             let repo = caps["repo"].to_string();
             let name = caps["name"].to_string();
-            let votes: i64 = caps.name("votes").map(|m| m.as_str().parse().unwrap_or(0)).unwrap_or(0);
-            let pop: f64 = caps.name("pop").map(|m| m.as_str().parse().unwrap_or(0.0)).unwrap_or(0.0);
+            let votes: i64 = caps
+                .name("votes")
+                .map(|m| m.as_str().parse().unwrap_or(0))
+                .unwrap_or(0);
+            let pop: f64 = caps
+                .name("pop")
+                .map(|m| m.as_str().parse().unwrap_or(0.0))
+                .unwrap_or(0.0);
             let source = if repo == "aur" { "aur" } else { "repos" };
             // Solo los paquetes de AUR se gestionan con el helper; los de
             // repos nativos van con pacman aunque los haya listado yay.
@@ -798,6 +1041,8 @@ fn search_repos_arch(bin: &str, query: &str, installed: &HashSet<String>, out: &
                 votes,
                 popularity: pop,
                 source: source.into(),
+
+                origin: String::new(),
             });
         } else if line.starts_with(char::is_whitespace) && pending.is_some() {
             if let Some(s) = pending.as_mut() {
@@ -814,7 +1059,14 @@ fn search_repos_arch(bin: &str, query: &str, installed: &HashSet<String>, out: &
 }
 
 fn search_flatpak(query: &str, out: &mut Vec<SearchResult>) {
-    let o = run_capture("flatpak", &["search", "--columns=application,name,version,description", query]);
+    let o = run_capture(
+        "flatpak",
+        &[
+            "search",
+            "--columns=application,name,version,description",
+            query,
+        ],
+    );
     for line in o.stdout.lines() {
         let p: Vec<&str> = line.split('\t').collect();
         if p.len() < 3 {
@@ -824,14 +1076,17 @@ fn search_flatpak(query: &str, out: &mut Vec<SearchResult>) {
             manager: "flatpak".into(),
             name: p[0].trim().into(),
             version: p.get(2).map(|s| s.trim()).unwrap_or("").into(),
-            description: p.get(3).map(|s| s.trim().to_string()).unwrap_or_else(|| {
-                p.get(1).map(|s| s.trim().to_string()).unwrap_or_default()
-            }),
+            description: p
+                .get(3)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| p.get(1).map(|s| s.trim().to_string()).unwrap_or_default()),
             repo: p.get(1).map(|s| s.trim().to_string()).unwrap_or_default(),
             installed: false,
             votes: 0,
             popularity: 0.0,
             source: "flatpak".into(),
+
+            origin: String::new(),
         });
     }
 }
@@ -853,16 +1108,17 @@ fn search_snap(query: &str, out: &mut Vec<SearchResult>) {
             votes: 0,
             popularity: 0.0,
             source: "snap".into(),
+
+            origin: String::new(),
         });
     }
 }
 
 fn dedupe_push(out: &mut Vec<SearchResult>, r: Option<SearchResult>) {
     let Some(r) = r else { return };
-    if !out
-        .iter()
-        .any(|x| x.manager == r.manager && x.name == r.name && x.repo == r.repo && x.source == r.source)
-    {
+    if !out.iter().any(|x| {
+        x.manager == r.manager && x.name == r.name && x.repo == r.repo && x.source == r.source
+    }) {
         out.push(r);
     }
 }
@@ -927,7 +1183,11 @@ fn list(v: Option<String>) -> Vec<String> {
     seen
 }
 
-pub fn package_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<PkgDetails, String> {
+pub fn package_details(
+    app: &tauri::AppHandle,
+    manager: &str,
+    name: &str,
+) -> Result<PkgDetails, String> {
     match manager {
         "pacman" | "yay" | "paru" => arch_details(app, manager, name),
         "apt" => deb_details(name),
@@ -941,8 +1201,11 @@ pub fn package_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Res
 fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<PkgDetails, String> {
     let q = run_capture("pacman", &["-Q", name]);
     let installed = q.code == Some(0);
-    let foreign: HashSet<String> =
-        run_capture("pacman", &["-Qm", "-q"]).stdout.lines().map(str::to_string).collect();
+    let foreign: HashSet<String> = run_capture("pacman", &["-Qm", "-q"])
+        .stdout
+        .lines()
+        .map(str::to_string)
+        .collect();
     let is_foreign = installed && foreign.contains(name);
     let is_aur = manager == "yay" || manager == "paru" || is_foreign;
 
@@ -957,8 +1220,10 @@ fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<Pkg
             (String::new(), true)
         }
     } else {
-        let active =
-            settings::load(app).managers.iter().any(|m| m.id == manager && m.enabled && m.detected);
+        let active = settings::load(app)
+            .managers
+            .iter()
+            .any(|m| m.id == manager && m.enabled && m.detected);
         let bin = if active { manager } else { "pacman" };
         if rpc.is_some() {
             (String::new(), true)
@@ -990,19 +1255,34 @@ fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<Pkg
     let f_rep = field_value(&block, "Repository");
     let f_votes = field_value(&block, "Votes").and_then(|s| s.parse::<i64>().ok());
     let f_pop = field_value(&block, "Popularity").and_then(|s| s.parse::<f64>().ok());
-    let ood =
-        field_value(&block, "Out-of-date").map(|v| v.trim().eq_ignore_ascii_case("yes")).unwrap_or(false);
+    let ood = field_value(&block, "Out-of-date")
+        .map(|v| v.trim().eq_ignore_ascii_case("yes"))
+        .unwrap_or(false);
 
     let mut d = PkgDetails {
-        name: f_name.or_else(|| r.map(|r| r.name.clone())).unwrap_or_else(|| name.to_string()),
-        version: f_version.or_else(|| r.map(|r| r.version.clone())).unwrap_or_default(),
-        description: f_desc.or_else(|| r.map(|r| r.description.clone())).unwrap_or_default(),
+        name: f_name
+            .or_else(|| r.map(|r| r.name.clone()))
+            .unwrap_or_else(|| name.to_string()),
+        version: f_version
+            .or_else(|| r.map(|r| r.version.clone()))
+            .unwrap_or_default(),
+        description: f_desc
+            .or_else(|| r.map(|r| r.description.clone()))
+            .unwrap_or_default(),
         manager: manager_used,
         repo: f_rep
-            .or_else(|| if manager == "yay" || manager == "paru" { Some("aur".into()) } else { None })
+            .or_else(|| {
+                if manager == "yay" || manager == "paru" {
+                    Some("aur".into())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_default(),
         architecture: field_value(&block, "Architecture").unwrap_or_default(),
-        url: f_url.or_else(|| r.map(|r| r.url.clone())).unwrap_or_default(),
+        url: f_url
+            .or_else(|| r.map(|r| r.url.clone()))
+            .unwrap_or_default(),
         licenses: if f_lic.is_some() {
             list(f_lic)
         } else {
@@ -1024,7 +1304,11 @@ fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<Pkg
         } else {
             r.map(|r| r.opt_depends.clone()).unwrap_or_default()
         },
-        required_by: if installed { list(field_value(&block, "Required By")) } else { Vec::new() },
+        required_by: if installed {
+            list(field_value(&block, "Required By"))
+        } else {
+            Vec::new()
+        },
         conflicts_with: if f_conf.is_some() {
             list(f_conf)
         } else {
@@ -1032,11 +1316,15 @@ fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<Pkg
         },
         replaces: list(field_value(&block, "Replaces")),
         download_size: if is_remote {
-            field_value(&block, "Download Size").map(|s| parse_installed_size(&s)).unwrap_or(0)
+            field_value(&block, "Download Size")
+                .map(|s| parse_installed_size(&s))
+                .unwrap_or(0)
         } else {
             0
         },
-        installed_size: field_value(&block, "Installed Size").map(|s| parse_installed_size(&s)).unwrap_or(0),
+        installed_size: field_value(&block, "Installed Size")
+            .map(|s| parse_installed_size(&s))
+            .unwrap_or(0),
         packager: field_value(&block, "Packager").unwrap_or_default(),
         build_date: field_value(&block, "Build Date").unwrap_or_default(),
         install_date: if installed {
@@ -1063,17 +1351,33 @@ fn arch_details(app: &tauri::AppHandle, manager: &str, name: &str) -> Result<Pkg
         category: String::new(),
         desktop_files: vec![],
         update: None,
+
+        origin: String::new(),
     };
     if installed {
-        let explicit: HashSet<String> =
-            run_capture("pacman", &["-Qe", "-q"]).stdout.lines().map(str::to_string).collect();
+        let explicit: HashSet<String> = run_capture("pacman", &["-Qe", "-q"])
+            .stdout
+            .lines()
+            .map(str::to_string)
+            .collect();
         d.explicit = explicit.contains(&d.name) || is_foreign;
         let gui = desktop_owners_arch();
         d.desktop_files = gui.get(&d.name).cloned().unwrap_or_default();
-        d.category =
-            if is_foreign { "aur".into() } else if !d.desktop_files.is_empty() { "gui".into() } else { "terminal".into() };
+        let sys = system_closure(&arch_info_map());
+        d.origin = arch_origin(is_foreign, explicit.contains(&d.name), &d.groups, sys.contains(&d.name)).into();
+        d.category = if is_foreign {
+            "aur".into()
+        } else if !d.desktop_files.is_empty() {
+            "gui".into()
+        } else {
+            "terminal".into()
+        };
     } else {
-        d.category = if d.repo.eq_ignore_ascii_case("aur") { "aur".into() } else { "terminal".into() };
+        d.category = if d.repo.eq_ignore_ascii_case("aur") {
+            "aur".into()
+        } else {
+            "terminal".into()
+        };
     }
     Ok(d)
 }
@@ -1084,11 +1388,17 @@ fn aur_rpc(name: &str) -> Option<AurResult> {
         return None;
     }
     let url = format!("https://aur.archlinux.org/rpc/v5/info?arg[]={name}");
-    let out = run_capture_timeout("curl", &["-s", "--connect-timeout", "4", "--max-time", "8", &url], 12);
+    let out = run_capture_timeout(
+        "curl",
+        &["-s", "--connect-timeout", "4", "--max-time", "8", &url],
+        12,
+    );
     if out.stdout.trim().is_empty() {
         return None;
     }
-    serde_json::from_str::<AurRpcResp>(&out.stdout).ok().and_then(|resp| resp.results.into_iter().next())
+    serde_json::from_str::<AurRpcResp>(&out.stdout)
+        .ok()
+        .and_then(|resp| resp.results.into_iter().next())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1201,6 +1511,8 @@ fn deb_details(name: &str) -> Result<PkgDetails, String> {
         category: "terminal".into(),
         desktop_files: vec![],
         update: None,
+
+        origin: String::new(),
     })
 }
 
@@ -1209,7 +1521,10 @@ fn rpm_details(manager: &str, name: &str) -> Result<PkgDetails, String> {
     let installed = q.code == Some(0);
     if installed {
         let info = run_capture("rpm", &["-qi", name]).stdout;
-        let full = run_capture("rpm", &["-q", "--qf", "%{DESCRIPTION}", name]).stdout.trim().to_string();
+        let full = run_capture("rpm", &["-q", "--qf", "%{DESCRIPTION}", name])
+            .stdout
+            .trim()
+            .to_string();
         let description = if !full.is_empty() {
             full
         } else {
@@ -1229,7 +1544,10 @@ fn rpm_details(manager: &str, name: &str) -> Result<PkgDetails, String> {
             architecture: field_value(&info, "Architecture").unwrap_or_default(),
             url: field_value(&info, "URL").unwrap_or_default(),
             licenses: list(field_value(&info, "License")),
-            groups: list(field_value(&info, "Group")).into_iter().filter(|g| !g.eq_ignore_ascii_case("Unspecified")).collect(),
+            groups: list(field_value(&info, "Group"))
+                .into_iter()
+                .filter(|g| !g.eq_ignore_ascii_case("Unspecified"))
+                .collect(),
             provides: vec![],
             depends: vec![],
             optional_deps: vec![],
@@ -1237,14 +1555,16 @@ fn rpm_details(manager: &str, name: &str) -> Result<PkgDetails, String> {
             conflicts_with: vec![],
             replaces: vec![],
             download_size: 0,
-            installed_size: field_value(&info, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
+            installed_size: field_value(&info, "Size")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
             packager: field_value(&info, "Packager").unwrap_or_default(),
             build_date: field_value(&info, "Build Time").unwrap_or_default(),
             install_date: field_value(&info, "Install Time").unwrap_or_default(),
             install_reason: String::new(),
-        maintainer: String::new(),
-        submitted: String::new(),
-        modified: String::new(),
+            maintainer: String::new(),
+            submitted: String::new(),
+            modified: String::new(),
             votes: 0,
             popularity: 0.0,
             out_of_date: false,
@@ -1253,6 +1573,8 @@ fn rpm_details(manager: &str, name: &str) -> Result<PkgDetails, String> {
             category: "terminal".into(),
             desktop_files: vec![],
             update: None,
+
+            origin: String::new(),
         });
     }
     let block = if manager == "zypper" {
@@ -1272,9 +1594,13 @@ fn rpm_details(manager: &str, name: &str) -> Result<PkgDetails, String> {
         .or_else(|| field_value(&block, "Summary"))
         .unwrap_or_default();
     let dl = if manager == "zypper" {
-        field_value(&block, "Download Size").map(|s| parse_installed_size(&s)).unwrap_or(0)
+        field_value(&block, "Download Size")
+            .map(|s| parse_installed_size(&s))
+            .unwrap_or(0)
     } else {
-        field_value(&block, "Size").map(|s| parse_installed_size(&s)).unwrap_or(0)
+        field_value(&block, "Size")
+            .map(|s| parse_installed_size(&s))
+            .unwrap_or(0)
     };
     Ok(PkgDetails {
         name: field_value(&block, "Name").unwrap_or_else(|| name.to_string()),
@@ -1309,11 +1635,17 @@ fn rpm_details(manager: &str, name: &str) -> Result<PkgDetails, String> {
         category: "terminal".into(),
         desktop_files: vec![],
         update: None,
+
+        origin: String::new(),
     })
 }
 
 fn flatpak_details(name: &str) -> Result<PkgDetails, String> {
-    let o = run_capture("flatpak", &["list", "--app", "--columns=application,name,version"]).stdout;
+    let o = run_capture(
+        "flatpak",
+        &["list", "--app", "--columns=application,name,version"],
+    )
+    .stdout;
     let installed = o.lines().any(|l| l.split('\t').next() == Some(name));
     let block = if installed {
         run_capture("flatpak", &["info", name]).stdout
@@ -1344,7 +1676,9 @@ fn flatpak_details(name: &str) -> Result<PkgDetails, String> {
         conflicts_with: vec![],
         replaces: vec![],
         download_size: 0,
-        installed_size: field_value(&block, "Installed size").map(|s| parse_installed_size(&s)).unwrap_or(0),
+        installed_size: field_value(&block, "Installed size")
+            .map(|s| parse_installed_size(&s))
+            .unwrap_or(0),
         packager: String::new(),
         build_date: String::new(),
         install_date: String::new(),
@@ -1357,9 +1691,15 @@ fn flatpak_details(name: &str) -> Result<PkgDetails, String> {
         out_of_date: false,
         installed,
         explicit: installed,
-        category: if installed { "flatpak".into() } else { "terminal".into() },
+        category: if installed {
+            "flatpak".into()
+        } else {
+            "terminal".into()
+        },
         desktop_files: vec![],
         update: None,
+
+        origin: String::new(),
     })
 }
 
@@ -1378,7 +1718,11 @@ fn snap_details(name: &str) -> Result<PkgDetails, String> {
         version: block
             .lines()
             .find(|l| l.trim_start().starts_with("installed:"))
-            .and_then(|l| l.split(':').nth(1).map(|s| s.trim().split_whitespace().next().unwrap_or("").to_string()))
+            .and_then(|l| {
+                l.split(':')
+                    .nth(1)
+                    .map(|s| s.trim().split_whitespace().next().unwrap_or("").to_string())
+            })
             .unwrap_or_else(|| {
                 block
                     .lines()
@@ -1388,7 +1732,11 @@ fn snap_details(name: &str) -> Result<PkgDetails, String> {
             }),
         description,
         manager: "snap".into(),
-        repo: block.lines().find(|l| l.trim_start().starts_with("tracking:")).and_then(|l| l.split(':').nth(1).map(|s| s.trim().to_string())).unwrap_or_default(),
+        repo: block
+            .lines()
+            .find(|l| l.trim_start().starts_with("tracking:"))
+            .and_then(|l| l.split(':').nth(1).map(|s| s.trim().to_string()))
+            .unwrap_or_default(),
         architecture: String::new(),
         url: field_value(&block, "contact").unwrap_or_default(),
         licenses: vec![],
@@ -1413,9 +1761,15 @@ fn snap_details(name: &str) -> Result<PkgDetails, String> {
         out_of_date: false,
         installed,
         explicit: installed,
-        category: if installed { "snap".into() } else { "terminal".into() },
+        category: if installed {
+            "snap".into()
+        } else {
+            "terminal".into()
+        },
         desktop_files: vec![],
         update: None,
+
+        origin: String::new(),
     })
 }
 
@@ -1428,21 +1782,37 @@ pub fn get_cache_info(app: &tauri::AppHandle) -> Vec<crate::model::CacheInfo> {
 
     if fam == "arch" {
         let r = dir_size("/var/cache/pacman/pkg");
-        v.push(CacheInfo { label: "Caché de pacman".into(), path: "/var/cache/pacman/pkg".into(), size_bytes: r });
+        v.push(CacheInfo {
+            label: "Caché de pacman".into(),
+            path: "/var/cache/pacman/pkg".into(),
+            size_bytes: r,
+        });
         if let Ok(home) = std::env::var("HOME") {
             let p = format!("{home}/.cache/yay");
             if Path::new(&p).exists() {
-                v.push(CacheInfo { label: "Caché de compilación yay".into(), path: p.clone(), size_bytes: dir_size(&p) });
+                v.push(CacheInfo {
+                    label: "Caché de compilación yay".into(),
+                    path: p.clone(),
+                    size_bytes: dir_size(&p),
+                });
             }
         }
     }
     if enabled(app, "apt") {
         let r = dir_size("/var/cache/apt");
-        v.push(CacheInfo { label: "Caché de apt".into(), path: "/var/cache/apt".into(), size_bytes: r });
+        v.push(CacheInfo {
+            label: "Caché de apt".into(),
+            path: "/var/cache/apt".into(),
+            size_bytes: r,
+        });
     }
     if enabled(app, "dnf") {
         let r = dir_size("/var/cache/dnf");
-        v.push(CacheInfo { label: "Caché de dnf".into(), path: "/var/cache/dnf".into(), size_bytes: r });
+        v.push(CacheInfo {
+            label: "Caché de dnf".into(),
+            path: "/var/cache/dnf".into(),
+            size_bytes: r,
+        });
     }
     v
 }
@@ -1464,6 +1834,7 @@ pub fn get_orphans(app: &tauri::AppHandle) -> Vec<Pkg> {
             category: "terminal".into(),
             size: 0,
             explicit: false,
+            origin: "dependencia".into(),
             desktop_files: vec![],
             update: None,
         })
@@ -1506,15 +1877,19 @@ mod tests {
             votes: 0,
             popularity: 0.0,
             source: source.into(),
+            origin: String::new(),
         }
     }
 
     #[test]
     fn arch_info_tiene_descripcion_y_tamano() {
         let info = arch_info_map();
-        let (desc, size) = info.get("bash").cloned().unwrap_or_default();
-        assert!(!desc.is_empty(), "descripción vacía para bash (bug de espaciado)");
-        assert!(size > 0, "tamaño 0 para bash");
+        let ai = info.get("bash").cloned().unwrap_or_default();
+        assert!(
+            !ai.desc.is_empty(),
+            "descripción vacía para bash (bug de espaciado)"
+        );
+        assert!(ai.size > 0, "tamaño 0 para bash");
     }
 
     #[test]
@@ -1535,7 +1910,10 @@ mod tests {
         search_repos_arch("yay", "gitkraken", &installed, &mut out);
         assert!(!out.is_empty(), "sin resultados");
         let outdated = out.iter().find(|s| s.name == "gitkraken-cli");
-        assert!(outdated.is_some(), "no se parseó la línea con (Out-of-date:)");
+        assert!(
+            outdated.is_some(),
+            "no se parseó la línea con (Out-of-date:)"
+        );
         let s = outdated.unwrap();
         assert_eq!(s.repo, "aur");
         assert!(s.votes > 0, "votos no parseados");
@@ -1543,11 +1921,51 @@ mod tests {
     }
 
     #[test]
+    fn arch_origin_clasifica_sistema_extra_y_dependencia() {
+        let base = vec!["base".to_string()];
+        let dev = vec!["base-devel".to_string(), "extra".to_string()];
+        assert_eq!(arch_origin(false, true, &base, false), "sistema");
+        assert_eq!(arch_origin(false, false, &dev, false), "sistema");
+        assert_eq!(arch_origin(false, false, &[], true), "sistema");
+        assert_eq!(arch_origin(true, true, &[], true), "extra");
+        assert_eq!(arch_origin(true, false, &[], false), "extra");
+        assert_eq!(arch_origin(false, true, &[], false), "extra");
+        assert_eq!(arch_origin(false, false, &[], false), "dependencia");
+    }
+
+    #[test]
+    fn system_closure_incluye_dependencias_de_base() {
+        let mut info = HashMap::new();
+        info.insert(
+            "base".to_string(),
+            ArchInfo { desc: String::new(), size: 0, groups: vec![], depends: vec!["bash".to_string(), "glibc".to_string()] },
+        );
+        info.insert(
+            "bash".to_string(),
+            ArchInfo { desc: String::new(), size: 0, groups: vec![], depends: vec!["glibc".to_string(), "readline".to_string()] },
+        );
+        info.insert("glibc".to_string(), ArchInfo::default());
+        info.insert("readline".to_string(), ArchInfo::default());
+        info.insert("firefox".to_string(), ArchInfo::default());
+        let sys = system_closure(&info);
+        assert!(sys.contains("base"));
+        assert!(sys.contains("bash"));
+        assert!(sys.contains("glibc"));
+        assert!(sys.contains("readline"));
+        assert!(!sys.contains("firefox"));
+    }
+
+    #[test]
+    fn dep_name_quita_restricciones_de_version() {
+        assert_eq!(dep_name("glibc>=2.33").as_deref(), Some("glibc"));
+        assert_eq!(dep_name("bash").as_deref(), Some("bash"));
+        assert_eq!(dep_name("None"), None);
+        assert_eq!(dep_name(""), None);
+    }
+
+    #[test]
     fn relevancia_prioriza_nombre_exacto() {
-        let mut v = vec![
-            sr("myapp-old", true, "aur"),
-            sr("myapp", false, "aur"),
-        ];
+        let mut v = vec![sr("myapp-old", true, "aur"), sr("myapp", false, "aur")];
         let out = finalize_results(std::mem::take(&mut v), "myapp");
         assert_eq!(out[0].name, "myapp");
         assert_eq!(out.len(), 2);
@@ -1555,10 +1973,7 @@ mod tests {
 
     #[test]
     fn dedupe_prefiere_instalado() {
-        let mut v = vec![
-            sr("foo", false, "aur"),
-            sr("foo", true, "instalado"),
-        ];
+        let mut v = vec![sr("foo", false, "aur"), sr("foo", true, "instalado")];
         let out = finalize_results(std::mem::take(&mut v), "foo");
         assert_eq!(out.len(), 1);
         assert!(out[0].installed);

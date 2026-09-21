@@ -76,6 +76,16 @@ terminal integrada (PTY + xterm.js).
   - **Manager correcto en Tienda**: los resultados nativos de `yay -Ss` llevan
     `manager: "pacman"` (antes `"yay"` para todo); el dedupe por (manager, nombre)
     fusiona instalado+repo sin duplicados y el detalle abre la ruta correcta.
+- ✅ **Mejoras de 2026-09-21 (tarjetas + origen)** — ver plan en conversación:
+  - **Tarjetas uniformes**: la tarjeta ocupa el 100% de la fila (`:host` block + `h-full`);
+    todas igualan a la descripción más larga.
+  - **Origen del paquete** (`sistema`/`dependencia`/`extra`): backend calcula el cierre de
+    dependencias de `base` + núcleos (`system_closure` sobre `pacman -Qi`) y expone
+    `origin` en `Pkg`/`SearchResult`/`PkgDetails`; insignia en tarjeta, fila en detalle
+    y **desplegable de filtro** en el tab Terminal (patrón listbox de Ajustes).
+  - **Clasificación Internet**: palabras de mensajería (`chat`, `voice`, `discord`,
+    `telegram`…) → Discord y similares ya no caen en Ofimática; los `subs` cortos
+    (`tex`, `go`…) solo valen como palabra completa.
 
 ### Notas de integración (importantes)
 

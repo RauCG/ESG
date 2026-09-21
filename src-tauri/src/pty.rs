@@ -30,7 +30,12 @@ impl PtsSession {
 
     pub fn resize(&self, cols: u16, rows: u16) {
         if let Ok(m) = self.master.lock() {
-            let _ = m.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+            let _ = m.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
         }
     }
 
@@ -50,7 +55,10 @@ impl PtsSession {
             l.push(channel.clone());
         }
         if !snapshot.is_empty() {
-            let _ = channel.send(PtsEvent::Data { id: self.id, data: snapshot });
+            let _ = channel.send(PtsEvent::Data {
+                id: self.id,
+                data: snapshot,
+            });
         }
         Ok(())
     }
@@ -78,7 +86,9 @@ pub struct PtsState {
 
 impl PtsState {
     pub fn new() -> Self {
-        PtsState { sessions: Mutex::new(HashMap::new()) }
+        PtsState {
+            sessions: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn next_id(&self) -> u32 {
@@ -131,7 +141,11 @@ fn log_op_transcript(id: u32, label: &str, success: bool, code: Option<i32>, cap
     }
     #[cfg(not(unix))]
     {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
             let _ = f.write_all(entry.as_bytes());
         }
     }
@@ -139,13 +153,20 @@ fn log_op_transcript(id: u32, label: &str, success: bool, code: Option<i32>, cap
 
 pub fn spawn_shell(state: &PtsState, spec: SpawnSpec) -> Result<u32, String> {
     let pty = native_pty_system()
-        .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: 40,
+            cols: 120,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| format!("Error creando PTY: {e}"))?;
     let (master, slave) = (pty.master, pty.slave);
 
     let shell = util::shell();
     let cwd = spec.cwd.clone().unwrap_or_else(|| {
-        std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/"))
+        std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/"))
     });
 
     let mut cmd = CommandBuilder::new(&shell);
@@ -161,7 +182,9 @@ pub fn spawn_shell(state: &PtsState, spec: SpawnSpec) -> Result<u32, String> {
         cmd.arg("-l");
     }
 
-    let child = slave.spawn_command(cmd).map_err(|e| format!("No se puede lanzar {shell}: {e}"))?;
+    let child = slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("No se puede lanzar {shell}: {e}"))?;
     drop(slave);
 
     let reader = master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -200,13 +223,21 @@ pub fn spawn_shell(state: &PtsState, spec: SpawnSpec) -> Result<u32, String> {
                             cap.drain(..drop_n);
                         }
                     }
-                    session.broadcast(PtsEvent::Data { id: session.id, data: chunk });
+                    session.broadcast(PtsEvent::Data {
+                        id: session.id,
+                        data: chunk,
+                    });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             }
         }
-        let status = session.child.lock().unwrap().take().and_then(|mut c| c.wait().ok());
+        let status = session
+            .child
+            .lock()
+            .unwrap()
+            .take()
+            .and_then(|mut c| c.wait().ok());
         session.alive.store(false, Ordering::SeqCst);
         let (code, success) = match status {
             Some(s) => {
@@ -225,7 +256,12 @@ pub fn spawn_shell(state: &PtsState, spec: SpawnSpec) -> Result<u32, String> {
             let cap = session.capture.lock().unwrap().clone();
             log_op_transcript(session.id, &session.label, success, code, &cap);
         }
-        session.broadcast(PtsEvent::Exit { id: session.id, success, code, signal: None });
+        session.broadcast(PtsEvent::Exit {
+            id: session.id,
+            success,
+            code,
+            signal: None,
+        });
     });
 
     Ok(id)

@@ -59,9 +59,17 @@ fn capture(cmd: &mut Command) -> CapturedOutput {
             let _ = se.read_to_string(&mut err);
         }
         let code = child.wait().ok().map(|s| s.code()).flatten();
-        CapturedOutput { code, stdout: out, stderr: err }
+        CapturedOutput {
+            code,
+            stdout: out,
+            stderr: err,
+        }
     } else {
-        CapturedOutput { code: None, stdout: String::new(), stderr: "No se pudo ejecutar el comando".into() }
+        CapturedOutput {
+            code: None,
+            stdout: String::new(),
+            stderr: "No se pudo ejecutar el comando".into(),
+        }
     }
 }
 
@@ -198,7 +206,10 @@ Description: Full description line one
 Other       : value
 ";
         let desc = field_block(block, "Description");
-        assert_eq!(desc.as_deref(), Some("Full description line one\ncontinues here."));
+        assert_eq!(
+            desc.as_deref(),
+            Some("Full description line one\ncontinues here.")
+        );
     }
 
     #[test]

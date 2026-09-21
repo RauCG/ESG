@@ -1,4 +1,4 @@
-import { Category, Section } from './types';
+import { Category, Origin, Section } from './types';
 
 export function formatBytes(n: number | null | undefined): string {
   if (n == null) return '';
@@ -22,6 +22,27 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 };
 
 export const CATEGORY_ORDER: Category[] = ['gui', 'terminal', 'aur', 'flatpak', 'snap'];
+
+export const ORIGIN_LABEL: Record<Origin, string> = {
+  sistema: 'Sistema',
+  dependencia: 'Dependencia',
+  extra: 'Extra',
+};
+
+export const ORIGIN_ORDER: Origin[] = ['sistema', 'dependencia', 'extra'];
+
+export function originColor(o: Origin | ''): string {
+  switch (o) {
+    case 'sistema':
+      return 'text-sky-300 bg-sky-500/10 border-sky-500/30';
+    case 'dependencia':
+      return 'text-slate-300 bg-slate-500/10 border-slate-500/30';
+    case 'extra':
+      return 'text-lime-300 bg-lime-500/10 border-lime-500/30';
+    default:
+      return 'text-slate-300 bg-slate-500/10 border-slate-500/30';
+  }
+}
 
 export function categoryColor(c: Category): string {
   switch (c) {
@@ -183,8 +204,8 @@ const SECTION_RULES: SectionRule[] = [
   },
   {
     section: 'internet',
-    words: ['network', 'wifi', 'bluetooth', 'vpn', 'web', 'server', 'remote', 'ssh', 'dns', 'firewall', 'proxy', 'mail'],
-    subs: ['networkmanager', 'nmcli', 'iproute', 'iptables', 'nftables', 'curl', 'wget', 'tailscale', 'surfshark', 'openvpn', 'wireguard', 'freerdp', 'vnc', 'samba', 'nginx', 'apache', 'hostapd', 'avahi', 'openssh', 'sshpass', 'netcat', 'socat', 'tcpdump', 'nmap', 'bluez'],
+    words: ['network', 'wifi', 'bluetooth', 'vpn', 'web', 'server', 'remote', 'ssh', 'dns', 'firewall', 'proxy', 'mail', 'chat', 'voice', 'voip', 'message', 'messenger', 'phone', 'sms', 'social', 'communication', 'comunicacion', 'llamada', 'videollamada'],
+    subs: ['networkmanager', 'nmcli', 'iproute', 'iptables', 'nftables', 'curl', 'wget', 'tailscale', 'surfshark', 'openvpn', 'wireguard', 'freerdp', 'vnc', 'samba', 'nginx', 'apache', 'hostapd', 'avahi', 'openssh', 'sshpass', 'netcat', 'socat', 'tcpdump', 'nmap', 'bluez', 'discord', 'telegram', 'slack', 'teams', 'zoom', 'whatsapp', 'jitsi', 'thunderbird', 'firefox', 'chromium', 'brave'],
   },
   {
     section: 'ofimatica',
@@ -220,7 +241,9 @@ export function classifySection(pkg: { name: string; description?: string }): Se
   const text = `${pkg.name} ${pkg.description ?? ''}`.toLowerCase();
   for (const rule of SECTION_RULES) {
     if (rule.words.some((w) => hasWord(text, w))) return rule.section;
-    if (rule.subs.some((s) => text.includes(s))) return rule.section;
+    // Los subs cortos (<=3) solo valen como palabra completa: evita que "tex"
+    // cace "text" (discord caía en ofimática) o "go" cace "dragon".
+    if (rule.subs.some((s) => (s.length <= 3 ? hasWord(text, s) : text.includes(s)))) return rule.section;
   }
   return 'otras';
 }
